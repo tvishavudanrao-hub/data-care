@@ -182,7 +182,10 @@ Follow `next_action`, never your own guess:
 
 ### E. Delivery (approval stage)
 
-1. `find_files` in `<id>-rebuilt` and `<id>-report`.
+1. `find_files` in `<id>-rebuilt` (the rebuilt file) and `<id>-report`. The client report
+   is `report.md`, which Validation publishes from Reconstruction's `report_draft.md`.
+   Deliver `report.md` only; never send `report_draft.md`, `manifest.json` or internal
+   records. If `report.md` is missing, `ask_operator` instead of sending.
 2. Write the invoice to `<id>-report/invoice.md`: invoice number `INV-<id>`, the
    client, the quoted amount, and a one-line description. Publish it.
 3. Reply on the client's thread with the rebuilt files, the four-label report and the
