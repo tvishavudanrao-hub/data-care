@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validation proof</title><style>
+:root{--bg:#fff;--fg:#161616;--muted:#5b5b5b;--line:#dedede;--ok:#1b7f3b;--bad:#b3261e;--accent:#c2185b;--card:#f6f6f6}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f2f2f2;--muted:#a6a6a6;--line:#333;--ok:#6fd08c;--bad:#ff8a80;--accent:#f06292;--card:#1b1b1b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:40px 16px 56px}h1{font-size:clamp(1.6rem,3.4vw,2.4rem);margin:0 0 6px;letter-spacing:-.01em}
+.lead{color:var(--muted);margin:0 0 28px;font-size:1.05rem}.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:.85rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+td.c{text-align:center;white-space:nowrap}.verdict{font-weight:800;letter-spacing:.05em}tr.ok .verdict{color:var(--ok)}tr.bad .verdict{color:var(--bad)}
+.key{margin-top:28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.card{background:var(--card);border-radius:10px;padding:14px 16px}.n{font-size:1.8rem;font-weight:800}.l{color:var(--muted);font-size:.9rem}
+.take{margin-top:28px;border-left:4px solid var(--accent);padding:6px 0 6px 14px;font-size:1.1rem}.foot{margin-top:22px;color:var(--muted);font-size:.85rem}
+</style></head><body><main>
+<h1>Matching the old numbers isn't proof</h1>
+<p class="lead">Our Validation agent changes the inputs and re-checks the rebuilt model against answers the rebuilder never saw. Real results from our verifier:</p>
+<div class="wrap"><table><thead><tr><th>Company</th><th>Rebuilt model</th><th>Old numbers</th><th>Validation</th><th>Why</th></tr></thead><tbody><tr class="ok"><td>Alderbank</td><td>Correct rebuild</td>
+<td class="c">✓ matches</td><td class="c verdict">PASS</td><td>Every check passed</td></tr><tr class="bad"><td>Alderbank</td><td>Wrong discount rule (&gt; instead of &gt;=)</td>
+<td class="c">✓ matches</td><td class="c verdict">FAIL</td><td>Wrong on discount tier boundaries</td></tr><tr class="bad"><td>Alderbank</td><td>Pasted historical values, no formulas</td>
+<td class="c">✓ matches</td><td class="c verdict">FAIL</td><td>Wrong on changed assumptions, changed costs, changed prices and more</td></tr><tr class="bad"><td>Alderbank</td><td>Invented the missing Q1 2026 opex</td>
+<td class="c">✓ matches</td><td class="c verdict">FAIL</td><td>Filled in a number no source supports</td></tr><tr class="bad"><td>Brightwell</td><td>Company A&#x27;s rules applied to Company B</td>
+<td class="c">✗ differs</td><td class="c verdict">FAIL</td><td>Wrong on changed assumptions, its own past numbers, changed costs and more</td></tr></tbody></table></div>
+<p class="take"><strong>3 of the 4 wrong rebuilds reproduce every historical number.</strong> Only changing the inputs exposes them.</p>
+<div class="key">
+<div class="card"><div class="n">27</div><div class="l">recovered: copied from a surviving source</div></div>
+<div class="card"><div class="n">81</div><div class="l">reconstructed and tested</div></div>
+<div class="card"><div class="n">0</div><div class="l">reconstructed but untested</div></div>
+<div class="card"><div class="n">1</div><div class="l">unresolved: no source, so we don't guess</div></div></div>
+<p class="foot">Correct Alderbank rebuild, labels per cell. Checks: historical numbers, changed units, prices and assumptions, discount-tier boundaries, zero-revenue quarters, fresh final checks. The hidden answers never leave the Validation agent.</p>
+</main></body></html>
