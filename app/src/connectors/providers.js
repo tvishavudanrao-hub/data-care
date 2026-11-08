@@ -7,13 +7,16 @@
 const enc = (o) => new URLSearchParams(o);
 const form = { "content-type": "application/x-www-form-urlencoded" };
 
-export const WANTED_EXT = [".xlsx", ".xlsm", ".xls", ".csv", ".pdf", ".docx", ".txt", ".eml", ".msg", ".json",
-  ".yml", ".yaml", ".py", ".js", ".ts", ".sql"];
+export const WANTED_EXT = [".xlsx", ".xlsm", ".xls", ".xlsb", ".ods", ".csv", ".pdf", ".docx", ".doc", ".odt",
+  ".pptx", ".ppt", ".txt", ".eml", ".msg", ".json", ".yml", ".yaml", ".py", ".js", ".ts", ".sql"];
 const MIME_BY_EXT = { ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
   ".xls": "application/vnd.ms-excel", ".csv": "text/csv", ".pdf": "application/pdf",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".txt": "text/plain",
   ".eml": "message/rfc822", ".json": "application/json", ".yml": "application/x-yaml", ".yaml": "application/x-yaml",
-  ".py": "text/x-python", ".js": "text/javascript", ".ts": "text/plain", ".sql": "text/plain", ".msg": "application/vnd.ms-outlook" };
+  ".py": "text/x-python", ".js": "text/javascript", ".ts": "text/plain", ".sql": "text/plain", ".msg": "application/vnd.ms-outlook",
+  ".xlsb": "application/vnd.ms-excel.sheet.binary.macroEnabled.12", ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+  ".doc": "application/msword", ".odt": "application/vnd.oasis.opendocument.text",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".ppt": "application/vnd.ms-powerpoint" };
 const ext = (name) => { const m = String(name).toLowerCase().match(/\.[a-z0-9]+$/); return m ? m[0] : ""; };
 export const wanted = (name) => WANTED_EXT.includes(ext(name));
 export const mimeFor = (name) => MIME_BY_EXT[ext(name)] || "application/octet-stream";
@@ -39,8 +42,9 @@ export const GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly", 
 const G_EXPORTS = {
   "application/vnd.google-apps.spreadsheet": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"],
   "application/vnd.google-apps.document": ["application/pdf", ".pdf"],
+  "application/vnd.google-apps.presentation": ["application/pdf", ".pdf"],
 };
-const G_MIME = ["application/vnd.google-apps.spreadsheet", "application/vnd.google-apps.document",
+const G_MIME = [...Object.keys(G_EXPORTS),
   ...new Set(Object.values(MIME_BY_EXT))];
 
 export function googleDrive(env, fetchImpl = fetch) {
