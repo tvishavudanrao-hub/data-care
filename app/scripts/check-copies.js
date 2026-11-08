@@ -2,7 +2,7 @@
 // web/connectors. This fails if a copy has drifted from its source (run: npm run check-copies).
 import { readFile } from "node:fs/promises";
 const pairs = {
-  tickets: ["tickets.js", "form.js", "naive.js", "tickets.sql"],
+  tickets: ["tickets.js", "form.js", "naive.js", "tickets.sql", "brand.js"],
   connectors: ["connectors.js", "pages.js", "providers.js", "naive_files.js", "connectors.sql"],
 };
 let bad = 0;
