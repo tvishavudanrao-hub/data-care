@@ -13,7 +13,7 @@ Additive extensions, proposed on the board before anyone relies on them:
 
 Two views of one verdict:
   * Verdict (private, full): expected vs actual for every example. Stays with
-    the Validation owner (verify/hidden/results/ and the private Neon table).
+    the Validation owner (verify/hidden/results/ only; never sent to cc.py).
   * Feedback (limited): what the Recovery Manager may forward to Rebuild:
     labels, row-level pass/fail, failing check TAGS and counts. No expected
     values, no scenario inputs, no hidden values.

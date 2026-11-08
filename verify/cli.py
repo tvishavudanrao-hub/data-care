@@ -2,7 +2,7 @@
 
     python -m verify.cli excel --case excel_a --candidate cand.xlsx \
         --job-id job_123 --artifact-id art_9 --artifact-version v2 --attempt 2 --retry-count 1 \
-        [--manifest manifest.json] [--neon]
+        [--manifest manifest.json] [--cc-case C-0001]
 
     python -m verify.cli code --case code_a --candidate invoicing.py ...
 
@@ -34,7 +34,9 @@ def main(argv=None) -> int:
     ap.add_argument("--attempt", required=True, type=int)
     ap.add_argument("--retry-count", required=True, type=int)
     ap.add_argument("--manifest", type=Path)
-    ap.add_argument("--neon", action="store_true", help="also write to Neon (needs NEON_DATABASE_URL)")
+    ap.add_argument("--cc-case", help="Code Care case id (C-0001): also write the verdict via naive/lib/cc.py")
+    ap.add_argument("--final-report", action="store_true",
+                    help="also write labeled report items (end of the loop: pass or escalation)")
     a = ap.parse_args(argv)
     meta = dict(job_id=a.job_id, artifact_id=a.artifact_id, artifact_version=a.artifact_version,
                 attempt=a.attempt, retry_count=a.retry_count)
@@ -47,14 +49,8 @@ def main(argv=None) -> int:
     fb = v.to_feedback()
     fb["stored"] = {"local_private": "verify/hidden/results/ (validation only)",
                     "local_feedback": str(paths["feedback"])}
-    if a.neon:
-        try:
-            store.write_neon(v)
-            fb["stored"]["neon"] = "written"
-        except store.NeonUnavailable as exc:
-            fb["stored"]["neon"] = f"NOT written: {exc}"
-        except Exception as exc:  # noqa: BLE001 - report DB failures, never claim success
-            fb["stored"]["neon"] = f"NOT written: {type(exc).__name__}: {exc}"
+    if a.cc_case:
+        fb["stored"]["code_care"] = store.write_cc(v, a.cc_case, report_items=a.final_report)
     print(json.dumps(fb, indent=2))
     return {"pass": 0, "fail": 1}.get(v.outcome, 2)
 

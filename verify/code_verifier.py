@@ -55,11 +55,18 @@ def static_scan(src: str) -> tuple[list[str], ast.FunctionDef | None, ast.Module
                 root = n.split(".")[0]
                 if root in BANNED_MODULES and not (top_level and root in allowed):
                     findings.append(f"unsafe import {n!r} (line {node.lineno})")
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in BANNED_CALLS:
-            findings.append(f"unsafe call {node.func.id}() in compute_discount (line {node.lineno})")
-        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            findings.append(f"dunder access .{node.attr} in compute_discount (line {node.lineno})")
+    # Everything except the surviving original functions (checked separately for changes)
+    # must avoid dangerous calls. This also keeps candidate code away from files such as
+    # the private suite that share the Validation sandbox.
+    original = _original_function_dumps()
+    scope = [n for n in tree.body if not (isinstance(n, ast.FunctionDef) and n.name != "compute_discount"
+                                          and original.get(n.name) == ast.dump(n))]
+    for top in scope:
+        for node in ast.walk(top):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in BANNED_CALLS:
+                findings.append(f"unsafe call {node.func.id}() (line {node.lineno})")
+            if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+                findings.append(f"dunder access .{node.attr} (line {node.lineno})")
     return findings, fn, tree
 
 
@@ -75,9 +82,13 @@ def _original_imports() -> set[str]:
     return names
 
 
-def _surviving_unchanged(tree: ast.Module) -> list[str]:
+def _original_function_dumps() -> dict[str, str]:
     orig = ast.parse(PUBLIC_ORIGINAL.read_text())
-    want = {n.name: ast.dump(n) for n in orig.body if isinstance(n, ast.FunctionDef) and n.name != "compute_discount"}
+    return {n.name: ast.dump(n) for n in orig.body if isinstance(n, ast.FunctionDef) and n.name != "compute_discount"}
+
+
+def _surviving_unchanged(tree: ast.Module) -> list[str]:
+    want = _original_function_dumps()
     have = {n.name: ast.dump(n) for n in tree.body if isinstance(n, ast.FunctionDef)}
     return [name for name, dump in want.items() if have.get(name) != dump]
 
@@ -139,6 +150,13 @@ def verify_code(case: str, candidate: Path, *, job_id: str, artifact_id: str, ar
                         "pass" if not changed else "fail", [],
                         "unchanged from the damaged original" if not changed
                         else f"originals altered: {', '.join(changed)}", ["data/public/code_a/invoicing.py"]))
+    if changed:  # do not run code whose surviving functions were rewritten
+        v.outcome = "fail"
+        v.reasons.append("surviving original functions were altered; not executed")
+        fn_item.label, fn_item.status, fn_item.reason = UNRESOLVED, "fail", "not run: originals altered"
+        v.items += [fn_item, unreadable]
+        v.next_action = retry.next_action(v.outcome, retry_count, max_retries)
+        return v
 
     heldout = json.loads((HIDDEN / case / "heldout_cases.json").read_text())["cases"]
     retry_cases = [c for c in heldout if c["pool"] == "retry"]
