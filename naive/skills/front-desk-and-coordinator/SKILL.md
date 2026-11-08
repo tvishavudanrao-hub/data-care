@@ -148,7 +148,9 @@ crash never opens a case twice, sends an email twice or loses a retry.
 
 **Send-once markers (no email ever goes out twice).** Each case has `sent`, a list of the
 emails already sent or being sent: `receipt`, `quote`, `question-<n>`, `supplier-<name>`,
-`delivery`. Before ANY send: read the newest index; if the marker is
+`delivery`, `update-<reason>` (e.g. `update-forensics-failed`), `closing`. EVERY email has
+a marker, including updates and closing notes; if no marker above fits, use
+`<kind>-<short reason>`. An email without a claimed marker is never sent. Before ANY send: read the newest index; if the marker is
 already in `sent`, do not send (log "already sent" and move on). Otherwise claim it:
 add the marker AND set `claims.<marker> = "<your session id>"`, publish the index, then
 wait 20 seconds (`sleep 20` in bash), then read the newest index again. Send ONLY if
