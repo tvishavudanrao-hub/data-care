@@ -414,7 +414,7 @@ multiagent:
       version: 3
     - type: agent
       id: agt_zv2syj3wxd7nf18v2yepvbqe58
-      version: 25
+      version: 26
     - type: agent
       id: agt_ywyxza1a11d5kxv0svbm869fj2
       version: 28
