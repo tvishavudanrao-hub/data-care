@@ -185,6 +185,13 @@ def as_eml(full: dict, body: str) -> str:
 def handle(key: str, inbox: str, kind: str, item: dict, dry_run: bool) -> None:
     msg_id = item["message_id"]
     folder_key = hashlib.sha1(msg_id.encode()).hexdigest()[:12]
+    state = load_state()
+    if folder_key in state.get("sessions_started", {}):
+        # A session already exists for this email (the label PATCH must have failed last time).
+        if not dry_run:
+            am("PATCH", f"/inboxes/{urllib.parse.quote(inbox)}/messages/{urllib.parse.quote(msg_id)}", key,
+               body={"add_labels": [DONE_LABEL]})
+        return
     folder = "intake"  # Naive folder names cannot contain "/"
     q = urllib.parse.quote
     full = am("GET", f"/inboxes/{q(inbox)}/messages/{q(msg_id)}", key)
@@ -240,6 +247,9 @@ def handle(key: str, inbox: str, kind: str, item: dict, dry_run: bool) -> None:
     )
     ses = vetta("session", "create", "--agent", RECOVERY_MANAGER, "--budget-usd", SESSION_BUDGET_USD,
                 "--message", message)
+    state = load_state()  # one RM session per email, even if the label below fails
+    state.setdefault("sessions_started", {})[folder_key] = ses.get("id")
+    save_state(state)
     am("PATCH", f"/inboxes/{q(inbox)}/messages/{q(msg_id)}", key, body={"add_labels": [DONE_LABEL]})
     log(f"  started {ses.get('id')} and labeled {DONE_LABEL}")
 

@@ -99,7 +99,7 @@ cc.py only writes records, so the case state lives in `index.json` in folder `ca
  "cases": {"C-0001": {"stage": "intake", "retry_count": 0, "kind": "excel",
                       "client": "a@b.com", "client_name": "Alderbank",
                       "thread_id": "...", "last_message_id": "...",
-                      "awaiting": null, "quote_usd": 450,
+                      "awaiting": null, "quote_usd": 450, "sent": ["quote"],
                       "mail_search": null}}}
 ```
 
@@ -110,6 +110,15 @@ the FIRST match, and publish every update as `index.json` in folder `case-index`
 already in the index is an existing case, never a new one. Publish it right after every
 change (new case, `stage`, `retry_count`, `last_message_id`, `awaiting`, `mail_search`), so a
 crash never opens a case twice, sends an email twice or loses a retry.
+
+**Send-once markers (no email ever goes out twice).** Each case has `sent`, a list of the
+emails already sent or being sent: `receipt`, `quote`, `question-<n>`, `supplier-<name>`,
+`delivery`, `clinic-report`. Before ANY send: read the newest index; if the marker is
+already in `sent`, do not send (log "already sent" and move on). Otherwise add the marker,
+publish the index, and only then send. Never remove a marker, even if the send fails (a
+failed send is logged and left for a person to see; a duplicate email is worse than a
+missing one). The same rule applies when another session, a board card or the backstop
+wakes you for a case that is already being handled.
 
 `awaiting` is what the case waits for while `waiting_client`: `"quote"` (the client's
 APPROVE), `"answer"` (a client question) or `"supplier"` (records requests).
@@ -277,9 +286,9 @@ Follow `next_action`, never your own guess:
    work ran 20% or more over, bill the quote anyway and log the overrun as an event. Write
    `<id>-report/invoice.md` (invoice number `INV-<id>`, client, amount, one-line
    description) and publish it.
-3. **Before sending,** set `awaiting: "delivery_sending"` in the index and publish it. If a
-   session finds a case already marked `delivery_sending`, do not send again: set the
-   stage to `delivered` and log that the send outcome was unconfirmed.
+3. **Before sending,** add `delivery` to the case's `sent` markers and publish the index.
+   If a session finds `delivery` already in `sent`, do not send again: set the stage to
+   `delivered` and log that the send outcome was unconfirmed.
 4. Reply on the client's thread with the rebuilt file, `report.md` and `invoice.md`
    attached. Summarise the report counts per label in the body, copied from the report,
    never rounded up. No person approves this; it goes out on its own.
