@@ -93,7 +93,7 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 `fetch_file` into the sandbox (all in folder `tools`):
 - `cc.py` by id `fil_hnbqtdd2773v993j5z839qtnqc` (Andrei's records client). If that id is
   gone, `find_files` for `cc.py` in `tools` and use the first match.
-- `email_format.py` by id `fil_sr4bv5mtwfsjf9q50ed78704zy` (the email template; see below).
+- `email_format.py` by id `fil_c15q5f5d7wrq7n919dsywqr092` (the email template; see below).
 - `quote.py` and `pricing.json` (Nash's quoting tool; `find_files` in `tools`, first match).
   Pass `--pricing pricing.json` to `quote` and `final`. Prices live in pricing.json,
   never in this skill.
@@ -102,7 +102,7 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 
 Every email you send, receipts, quotes, questions, supplier requests, updates and
 deliveries alike, is built with `email_format.py` (folder `tools`, id
-`fil_sr4bv5mtwfsjf9q50ed78704zy`; `fetch_file` it at the start of the session, like cc.py). Write
+`fil_c15q5f5d7wrq7n919dsywqr092`; `fetch_file` it at the start of the session, like cc.py). Write
 the content as JSON and run `python3 email_format.py --file content.json`; pass BOTH the
 returned `html` and `text` to `agentmail.send_message` / `reply_to_message`. Never send
 plain text alone.
@@ -148,7 +148,9 @@ crash never opens a case twice, sends an email twice or loses a retry.
 
 **Send-once markers (no email ever goes out twice).** Each case has `sent`, a list of the
 emails already sent or being sent: `receipt`, `quote`, `question-<n>`, `supplier-<name>`,
-`delivery`. Before ANY send: read the newest index; if the marker is
+`delivery`, `update-<reason>` (e.g. `update-forensics-failed`), `closing`. EVERY email has
+a marker, including updates and closing notes; if no marker above fits, use
+`<kind>-<short reason>`. An email without a claimed marker is never sent. Before ANY send: read the newest index; if the marker is
 already in `sent`, do not send (log "already sent" and move on). Otherwise claim it:
 add the marker AND set `claims.<marker> = "<your session id>"`, publish the index, then
 wait 20 seconds (`sleep 20` in bash), then read the newest index again. Send ONLY if
@@ -336,7 +338,8 @@ we found nothing we could recover, set the stage to `unresolved`, and send no in
    If a session finds `delivery` already in `sent`, do not send again: set the stage to
    `delivered` and log that the send outcome was unconfirmed.
 4. Reply on the client's thread with the rebuilt file, `report.md` and `invoice.md`
-   attached. Summarise the report counts per label in the body, copied from the report,
+   attached. Summarise the report counts per label in the body, copied from the "Independent
+   validation" section of `report.md` (Validation's counts, not the draft's own labels),
    never rounded up. No person approves this; it goes out on its own.
 5. Right after the send succeeds: set the stage to `delivered`, `awaiting: null`, publish
    the index, then log the event. Do these before anything else, in case the session is

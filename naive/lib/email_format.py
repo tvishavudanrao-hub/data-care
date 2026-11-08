@@ -31,7 +31,7 @@ import re
 import sys
 
 BRAND = "Data Care"
-TAGLINE = "We rebuild what you lost from what survives."
+TAGLINE = "Lost data isn't gone. It's in pieces."
 INBOX = "datacare-recover@agentmail.to"
 LABELS_NOTE = ("Every item in our reports is labeled recovered, reconstructed and tested, "
                "reconstructed but untested, or unresolved. We never guess a value.")
