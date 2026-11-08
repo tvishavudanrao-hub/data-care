@@ -54,7 +54,7 @@ The test suite has 11 tests. One runs the real SQL on Postgres (PGlite), which n
    Use whatever `query(text, params) -> rows` function `db.js` already builds.
 3. **Link it from the live board,** or from the landing page, as "Request a recovery".
 
-## Automatic quote email (the Recovery Manager writes it, a person approves it)
+## Automatic quote email (the Recovery Manager writes and sends it)
 
 ```
 customer submits /tickets
@@ -63,7 +63,8 @@ customer submits /tickets
   -> Recovery Manager follows section T of its skill: writes a tailored email
      (what we understood, how we'd handle it for their kind of loss, the four-label promise,
       the price from Nash's quote.py / pricing.json, getting-started steps, reply APPROVE + files)
-  -> agentmail.send_message from codecare-recover@agentmail.to  -- waits for a person to approve
+  -> agentmail.send_message from codecare-recover@agentmail.to to the ticket's email only
+     (Nash: a consented ticket address counts as the client's thread; send-once per ticket_id)
   -> client replies on that thread with files -> Anna's intake bridge -> section A opens the case
 ```
 

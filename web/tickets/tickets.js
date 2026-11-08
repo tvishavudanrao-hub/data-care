@@ -20,8 +20,9 @@
 // Auto-reply (optional, off by default): when TICKETS_AUTOSTART=1, NAIVE_API_KEY and
 // RECOVERY_MANAGER_AGENT_ID are set, each new ticket starts a Recovery Manager session on Naive with
 // the ticket as data. The Recovery Manager (the only agent with AgentMail send) writes the client a
-// tailored email: the quote, an overview of the service for their issue, and next steps. The send
-// waits for a person to approve it in Naive. Nothing here sends email itself. A daily cap
+// tailored email: the quote (quote.py), an overview of the service for their issue, and next steps,
+// sent only to the ticket's own address (Nash's decision; send-once per ticket). Nothing here sends
+// email itself. A daily cap
 // (TICKETS_MAX_SESSIONS_PER_DAY, default 20) stops spam from spending credits.
 
 import { FORM_HTML } from "./form.js";
