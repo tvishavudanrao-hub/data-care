@@ -1,7 +1,9 @@
 """Adapter for running rebuilt client code inside a Naive sandbox.
 
-Rebuilt code is never executed on the local machine. The only runner here
-talks to Naive (vetta CLI); when Naive is not reachable or not configured it
+Rebuilt code is never executed on the local machine. Two runners:
+  * InSandboxRunner: when this process is itself the Validation agent's Naive
+    sandbox (VERIFY_IN_NAIVE_SANDBOX=1, set by the skill there only).
+  * NaiveSandboxRunner: from outside, starts a Naive session (vetta CLI); when Naive is not reachable or not configured it
 raises SandboxUnavailable and the verdict is "untested" with next action
 blocked_integration_escalate_to_human.
 
@@ -76,5 +78,33 @@ class NaiveSandboxRunner:
         raise SandboxUnavailable(f"no result marker in session {session_id} output")
 
 
+class InSandboxRunner:
+    """Used when this verifier itself runs inside the Validation agent's Naive sandbox.
+
+    VERIFY_IN_NAIVE_SANDBOX=1 is a declaration that the process is inside that
+    sandbox (the skill sets it there). Never set it on a laptop or CI. The
+    candidate runs as a child process in an empty temp folder holding only the
+    bundle (candidate, runner, inputs), with a timeout and a minimal environment.
+    """
+
+    def run(self, files: dict[str, str], timeout_s: int = 60) -> dict:
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="vsbx_") as tmp:
+            for name, text in files.items():
+                Path(tmp, name).write_text(text)
+            try:
+                proc = subprocess.run([sys.executable, "-I", "sandbox_runner.py", "invoicing.py", "cases_input.json"],
+                                      cwd=tmp, capture_output=True, text=True, timeout=timeout_s,
+                                      env={"PATH": "/usr/bin:/bin", "PYTHONPATH": ""})
+            except subprocess.TimeoutExpired as exc:
+                raise SandboxUnavailable(f"candidate timed out after {timeout_s}s") from exc
+            if proc.returncode != 0:
+                return {"outputs": {}, "stderr": proc.stderr[-2000:]}
+            return json.loads(proc.stdout)
+
+
 def get_runner():
+    if os.environ.get("VERIFY_IN_NAIVE_SANDBOX") == "1":
+        return InSandboxRunner()
     return NaiveSandboxRunner()

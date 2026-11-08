@@ -22,16 +22,30 @@ python -m verify.selftest
 
 ## Run
 
+From a Naive agent, using the hand-off in `docs/codecare-contracts.md`:
+
 ```bash
-python -m verify.cli excel --case excel_a --candidate cand.xlsx --job-id J --artifact-id A --artifact-version v1 --attempt 1 --retry-count 0 [--manifest m.json] [--neon]
+VERIFY_IN_NAIVE_SANDBOX=1 python -m verify.handoff --request incoming/request.json --files-root incoming --out-dir validation_out --cc
+```
+
+- **Request:** `{case_id, stage, kind, files, note}` plus the optional `retry_count`, `dataset` and `artifact_version`. The job-object spelling (`job_id`, `asset_type`) also works.
+- **Reply:** `{case_id, stage, status, outcome, next_action, outputs, question, mismatches, retry_count}`. The `mismatches` list has only item, label, status, failing check tags and counts.
+- **Which private suite to use:** the request's `dataset` field. Failing that, a `VERIFY_CASE_MAP` json file (`{"C-0001": "excel_a"}`). Failing that, the company name in `Model!A1`.
+- **Manifest:** built from Reconstruction's `rules.json` (rule ids and evidence per row) and `report_items.json` (unresolved cells).
+- **`VERIFY_IN_NAIVE_SANDBOX=1`:** declares that the process is inside the Validation agent's Naive sandbox, so the code case runs there. Never set it on a laptop.
+
+Directly, for testing:
+
+```bash
+python -m verify.cli excel --case excel_a --candidate cand.xlsx --job-id C-0001 --artifact-id A --artifact-version v1 --attempt 1 --retry-count 0 [--manifest m.json] [--cc-case C-0001 --final-report]
 ```
 
 ```bash
-python -m verify.cli code --case code_a --candidate invoicing.py --job-id J --artifact-id A --artifact-version v1 --attempt 1 --retry-count 0
+python -m verify.cli code --case code_a --candidate invoicing.py --job-id C-0001 --artifact-id A --artifact-version v1 --attempt 1 --retry-count 0
 ```
 
 - **stdout:** the limited feedback JSON.
-- **Full verdict:** `verify/hidden/results/<case>/<verdict_id>.json`.
+- **Full verdict:** `verify/hidden/results/<dataset>/<verdict_id>.json`.
 - **Exit code:** 0 pass, 1 fail, 2 error or untested.
 
 ## Contracts
@@ -86,6 +100,9 @@ The answer keys were cross-checked in both `formulas` and LibreOffice against th
 
 | Piece | Status |
 |---|---|
-| Neon | Adapter in `store.py`, reading `NEON_DATABASE_URL` from the vault. **Not written to.** Andy's schema was not available, so `neon/proposed_schema.sql` is a proposal. Map the column names in `store.SHARED_COLUMNS`. |
-| Naive sandbox (code case) | Adapter in `sandbox.py`. **Not integration-tested.** Naive was unreachable, and there was no API key or agent id. Until it is configured, the code verdict is `untested` with `blocked_integration_escalate_to_human`. Only inputs enter the sandbox; expected values stay with Validation. |
-| Naive agent | `naive/agents/validation/validation.agent.yaml` is a **template**, not an export. `SKILL.md` is ready. |
+| Code Care records (Neon) | Writes go through `naive/lib/cc.py` to Andy's app, never straight to Neon (see `app/AGENTS.md`). Each attempt writes a `verdicts` row (`pass`, `retry_count`, and `results` with expected and actual "withheld") and an `events` row. The final outcome (pass or escalation) also writes `report_items`. **Tested against the app running locally with its in-memory database.** Not yet against Neon: that needs `CC_URL` and `CC_API_TOKEN` in the vault. Without `CC_URL`, cc.py writes JSON Lines and the reply says "NOT in Neon". |
+| Shared schema gap | `verdicts.pass` is a boolean, so error and untested are stored as `pass=false`, with the real outcome in `results[0]` (`example_id: "_outcome"`). |
+| Naive sandbox (code case) | Inside the Validation agent's sandbox: `InSandboxRunner`, which uses a temp folder, a timeout, and inputs only. From outside: `NaiveSandboxRunner` via vetta. **Neither has been run against Naive yet.** |
+| Sandbox packages | The Excel verifier needs `openpyxl` and `formulas`. Balthazar's contract says the sandboxes have the standard library only. If pip isn't available there, the hand-off replies `blocked_integration_escalate_to_human`. **This needs a test on Naive.** |
+| Private results | `verify/hidden/results/` lives in the sandbox and disappears with it. The shared record keeps only the limited view. |
+| Naive agent | `naive/agents/validation/validation.agent.yaml` uses the teammates' export format, with web tools off. **Not deployed.** The skill is `naive/skills/validation-harness/SKILL.md`. |

@@ -38,6 +38,71 @@ def excel(case, fixture, manifest=None, **meta):
     return verify_excel(case, FX / case / f"{fixture}.xlsx", artifact_id=fixture, manifest=manifest, **m)
 
 
+def handoff_checks(man_a: dict) -> None:
+    import os
+    import shutil
+    import tempfile
+    import openpyxl
+    from verify import handoff
+
+    tmp = Path(tempfile.mkdtemp(prefix="handoff_"))
+    old_env = {k: os.environ.get(k) for k in ("CC_URL", "CC_FALLBACK_DIR")}
+    os.environ.pop("CC_URL", None)
+    os.environ["CC_FALLBACK_DIR"] = str(tmp / "cc_records")
+    try:
+        inc = tmp / "incoming"
+        reb = inc / "cases" / "C-0001" / "rebuilt"
+        reb.mkdir(parents=True)
+        wb = openpyxl.load_workbook(FX / "excel_a" / "correct.xlsx")
+        wb["Model"]["A1"] = "Alderbank Outfitters quarterly model (recovered copy)"  # as Rebuild leaves it
+        wb.save(reb / "model.xlsx")
+        (reb / "rules.json").write_text(json.dumps([
+            {"rule_id": "R-0001-03", "description": "whole-quarter tier discount", "cells": ["Model!B7:I7"],
+             "evidence": ["F-0001-020"], "alternatives": [], "status": "reconstructed and tested"}]))
+        (reb / "report_items.json").write_text(json.dumps([
+            {"item": "Model!F12 (Operating expenses, Q1 2026)", "label": "unresolved", "cites": ["G-0001-01"]}]))
+        req = {"case_id": "C-0001", "stage": "validation", "kind": "excel", "retry_count": 0,
+               "files": ["cases/C-0001/rebuilt/model.xlsx", "cases/C-0001/rebuilt/rules.json",
+                         "cases/C-0001/rebuilt/report_items.json"]}
+        reply = handoff.handle(req, inc, tmp / "out", write_cc=True)
+        check("handoff: contract request -> pass reply (dataset detected from workbook)",
+              reply["outcome"] == "pass" and reply["status"] == "done", reply.get("reasons"))
+        check("handoff: reply uses contract fields",
+              {"case_id", "stage", "status", "outputs", "question", "mismatches"} <= set(reply))
+        priv = json.loads(next((HIDDEN / "results" / "excel_a").glob("*.json")).read_text()) \
+            if (HIDDEN / "results" / "excel_a").exists() else {}
+        check("handoff: Rebuild rule ids are cited in the report",
+              any("R-0001-03" in it.get("evidence", []) for it in priv.get("items", [])))
+        recs = (tmp / "cc_records" / "verdicts.jsonl").read_text()
+        exp = json.loads((HIDDEN / "excel_a" / "expected.json").read_text())
+        hidden_vals = {exp["historical"][c] for c in exp["damaged_cells"] if c in exp["historical"]}
+        hidden_vals |= {v for sc in exp["scenarios"] for v in list(sc["expected"].values())[:20]}
+        check("handoff: shared verdict record withholds every hidden value",
+              "withheld" in recs and not any(f'"{h}"' in recs for h in hidden_vals))
+        check("handoff: no CC_URL is reported as NOT in Neon",
+              "NOT in Neon" in reply["stored"].get("note", ""), reply.get("stored"))
+        items = (tmp / "cc_records" / "report_items.jsonl").read_text().splitlines()
+        check("handoff: final pass writes labeled report items", len(items) > 5 and
+              all(json.loads(x)["label"] in LABELS for x in items))
+
+        bad = dict(req, files=["cases/C-0001/rebuilt/model.xlsx"], retry_count=1)
+        shutil.copy(FX / "excel_a" / "pasted_values.xlsx", reb / "model.xlsx")
+        r2 = handoff.handle(dict(bad, dataset="excel_a"), inc, tmp / "out", write_cc=True)
+        check("handoff: failing candidate -> failed reply, returned via Recovery Manager",
+              r2["status"] == "failed" and r2["next_action"] == retry.RETURN and r2["mismatches"])
+        check("handoff: mismatch list carries no expected values",
+              all(set(m) == {"item_id", "label", "status", "failed_check_tags", "failed_checks"}
+                  for m in r2["mismatches"]))
+    finally:
+        for k, val in old_env.items():
+            if val is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = val
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(HIDDEN / "results", ignore_errors=True)
+
+
 def main() -> int:
     if not FX.exists():
         sys.exit("verify/hidden/fixtures missing: run python -m verify.hidden.oracle.build_private")
@@ -128,6 +193,16 @@ def main() -> int:
     failed = {t for e in exs if e.result == "fail" for t in e.tags}
     check("code compare: wrong boundary/cap/rounding fails", {"tier-boundary", "cap", "rounding"} <= failed,
           sorted(failed))
+
+    # ---- static scan: candidate code must not reach files in the shared sandbox
+    from verify.code_verifier import static_scan
+    sneaky = (FX / "code_a" / "correct_invoicing.py").read_text().replace(
+        "CENT = Decimal(\"0.01\")", "CENT = Decimal(\"0.01\")\nLEAK = open('verify/hidden/code_a/heldout_cases.json').read()")
+    check("code scan: module-level file read is flagged (not executed)",
+          any("open()" in f for f in static_scan(sneaky)[0]))
+
+    # ---- hand-off contract (docs/codecare-contracts.md) + cc.py fallback records
+    handoff_checks(man_a)
 
     width = max(len(n) for n, _ok, _d in results)
     for name, ok, detail in results:
