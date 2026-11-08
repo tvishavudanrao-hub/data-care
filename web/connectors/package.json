@@ -1,0 +1,7 @@
+{
+  "name": "datacare-connectors",
+  "private": true,
+  "type": "module",
+  "description": "Read-only client storage connectors (Google Drive first) for Data Care.",
+  "scripts": { "test": "node --test connectors.test.js", "dev": "node server.js" }
+}
