@@ -4,9 +4,9 @@
 #   - web_fetch, web_search, crm.read, open_panel (not needed; leak risk around the hidden suite)
 #   - handoffs to Reconstruction: replies go to Recovery Manager, which owns the retry loop
 #     (front-desk-and-coordinator skill, section D) and forwards the limited feedback.
-# Model and budget are kept exactly as exported. NOT yet applied to Naive: apply with
-# `vetta agent update` after review, re-save the Recovery Manager roster, then replace this file
-# with the fresh export. Budget ($1.00/month, $0.50/task) may be too low for test runs: ask the
+# Model and budget are kept exactly as exported. APPLIED to Naive on 2026-11-08 as version 9
+# (naive agent update agt_sma53s33ya0k45kzrxsk6fj3ss --file ...). The Recovery Manager roster still
+# pins Validation v3 until Anna re-saves it. Budget ($1.00/month, $0.50/task) may be too low for test runs: ask the
 # team before raising it.
 name: Validation Agent
 description: 'Validation Agent: audits reconstructions against private held-out checks with the validation-harness
@@ -112,6 +112,7 @@ tools:
     open_panel:
       enabled: false
       permission: allow
+handoffs: []
 budget:
   cap_usd: '1.00'
   max_task_usd: '0.50'
