@@ -47,7 +47,11 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 8. **The records app may not be live yet. That is not a blocker.** If cc.py says `CC_URL`
    is not set or prints `NOT LOGGED`, keep going: it writes local fallback records, and
    `index.json` is your source of truth. Never stop because of this.
-9. **Only case work.** Jobs that arrive on the team board or from another agent and are not
+9. **Board cards for finished cases.** If a board card wakes you about a case whose stage is
+   `delivered` or `unresolved`, do no work and send no email: comment once on that card
+   (one line, e.g. "C-0003 already delivered 2026-11-08 09:14 UTC; nothing to do"), move the
+   card to done, and end the session. If you already commented on that card, just end.
+9b. **Only case work.** Jobs that arrive on the team board or from another agent and are not
    about a case in your index (for example a git repository resync) are not yours: reply
    once that they are out of scope for the Recovery Manager, and do no work on them.
 10. Stay inside the session budget ($1). If a step would go over, stop; the backstop resumes.
