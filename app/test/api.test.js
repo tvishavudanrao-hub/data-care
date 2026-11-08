@@ -150,3 +150,13 @@ test("case detail lists rules", async () => {
   assert.equal(d.rules.length, 1);
   assert.equal(d.rules[0].rule_id, "R-7001-01");
 });
+
+test("a re-validated item counts once, with its newest label", async () => {
+  await call("POST", "/api/cases", { case_id: "C-7002", client_email: "y@example.com", kind: "excel" });
+  const item = { case_id: "C-7002", item: "Model!C7", cites: ["R-7002-01"] };
+  await call("POST", "/api/report_items", { ...item, label: "reconstructed but untested" });
+  await call("POST", "/api/report_items", { ...item, label: "reconstructed and tested" });
+  const d = await (await call("GET", "/api/board/case/C-7002", undefined, null)).json();
+  assert.equal(d.report_items.length, 1);
+  assert.equal(d.report_items[0].label, "reconstructed and tested");
+});

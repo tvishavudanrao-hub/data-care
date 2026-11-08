@@ -137,7 +137,8 @@ export function makeDb(query) {
       query(`select case_id, pass, outcome, retry_count, created_at from verdicts order by created_at desc, verdict_id desc limit 1`),
       query(`select case_id, agent, stage, message, cost_usd, human_stepped_in, created_at
                from events order by created_at desc, event_id desc limit 12`),
-      query(`select label, count(*)::int as n from report_items group by label`),
+      query(`select label, count(*)::int as n from
+                (select distinct on (case_id, item) label from report_items order by case_id, item, item_id desc) r group by label`),
       query(`select coalesce(sum(cost_usd), 0) as total_cost from events`),
     ]);
     return {
@@ -166,7 +167,8 @@ export function makeDb(query) {
   async function caseDetail(caseId) {
     const [c, items, verdicts, events, counts, rules] = await Promise.all([
       query(`select case_id, client_email, kind, stage, retry_count, quote_usd, updated_at from cases where case_id = $1`, [caseId]),
-      query(`select item, label, cites from report_items where case_id = $1 order by item_id limit 200`, [caseId]).catch(() => []),
+      query(`select item, label, cites from (select distinct on (item) item_id, item, label, cites from report_items
+                where case_id = $1 order by item, item_id desc) r order by item_id limit 400`, [caseId]).catch(() => []),
       query(`select pass, outcome, retry_count, created_at from verdicts where case_id = $1 order by created_at desc, verdict_id desc limit 5`, [caseId]),
       query(`select agent, stage, message, cost_usd, human_stepped_in, created_at from events where case_id = $1 order by created_at desc, event_id desc limit 30`, [caseId]),
       query(`select (select count(*)::int from fragments where case_id = $1) as fragments,
