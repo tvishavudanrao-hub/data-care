@@ -214,7 +214,11 @@ Follow `next_action`, never your own guess:
   --case <id> --stage reconstruction --retry-count <n>`), update the index, and
   `send_to_agent` Reconstruction with Validation's `mismatches` in the hand-off `note`.
   Then send the new rebuild to Validation again with the new `retry_count`. Log the event.
-- `escalate_to_human` or `blocked_integration_escalate_to_human`: set the stage to
+- `outcome: untested` (the file is not one Validation holds hidden examples for, e.g. a
+  client's own sheet), whatever `next_action` says: this is not a failure. Never retry.
+  Set the stage to `approval` and go to E; the report keeps Validation's labels, and the
+  delivery email says plainly that no held-back test existed for this file.
+- `escalate_to_human` or `blocked_integration_escalate_to_human` (any other outcome): set the stage to
   `unresolved`, log an event with `--human`, and `ask_operator`: "Case <id>: Validation
   says <next_action>. Outcome <outcome>, retry <n> of 3, reasons: ... Deliver a partial
   report labeled unresolved, or hold?" Never send it back to Reconstruction yourself.

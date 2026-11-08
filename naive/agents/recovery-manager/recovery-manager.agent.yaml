@@ -384,7 +384,7 @@ multiagent:
       version: 52
     - type: agent
       id: agt_sma53s33ya0k45kzrxsk6fj3ss
-      version: 13
+      version: 14
     - type: agent
       id: agt_4bypzt6ntpm47hzx91jp5xgv7g
       version: 1
