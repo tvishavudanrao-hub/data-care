@@ -27,7 +27,7 @@ A second company with a **different** discount rule shows the agents aren't tune
 | Validation | Checks rebuilds against private held-out tests, never repairs them, returns limited feedback | `verify/`, `naive/agents/validation/` |
 | Deliverable | Packages the result, report and invoice, waits for human approval | not yet |
 
-Agents pass structured messages (`{case_id, stage, kind, files, note}`) and share files through the Naive file library under `cases/<case_id>/`. See `docs/codecare-contracts.md`.
+Agents pass structured messages (`{case_id, stage, kind, files, note}`) and share files through the Naive file library in one flat folder per case and stage (`C-0001-incoming`, `C-0001-rebuilt`, `C-0001-report`, ...), because folder names cannot contain "/". Shared tools live in the folder `tools`. See `docs/codecare-contracts.md`.
 
 ## What's in the repo
 

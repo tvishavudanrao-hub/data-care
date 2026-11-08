@@ -51,7 +51,7 @@ def handoff_checks(man_a: dict) -> None:
     os.environ["CC_FALLBACK_DIR"] = str(tmp / "cc_records")
     try:
         inc = tmp / "incoming"
-        reb = inc / "cases" / "C-0001" / "rebuilt"
+        reb = inc / "C-0001-rebuilt"  # flat Naive folder: <case_id>-<stage>
         reb.mkdir(parents=True)
         wb = openpyxl.load_workbook(FX / "excel_a" / "correct.xlsx")
         wb["Model"]["A1"] = "Alderbank Outfitters quarterly model (recovered copy)"  # as Rebuild leaves it
@@ -62,17 +62,24 @@ def handoff_checks(man_a: dict) -> None:
         (reb / "report_items.json").write_text(json.dumps([
             {"item": "Model!F12 (Operating expenses, Q1 2026)", "label": "unresolved", "cites": ["G-0001-01"]}]))
         req = {"case_id": "C-0001", "stage": "validation", "kind": "excel", "retry_count": 0,
-               "files": ["cases/C-0001/rebuilt/model.xlsx", "cases/C-0001/rebuilt/rules.json",
-                         "cases/C-0001/rebuilt/report_items.json"]}
+               "files": ["C-0001-rebuilt/model.xlsx", "C-0001-rebuilt/rules.json",
+                         "C-0001-rebuilt/report_items.json", "C-0001-rebuilt/manifest.json"]}
+        (reb / "manifest.json").write_text(json.dumps(
+            {"case_id": "C-0001", "unresolved": ["Model!F12"],
+             "rules": {"9": {"rule_id": "R-0001-09", "evidence": ["F-0001-021"]}}, "needs_signoff": []}))
         reply = handoff.handle(req, inc, tmp / "out", write_cc=True)
         check("handoff: contract request -> pass reply (dataset detected from workbook)",
               reply["outcome"] == "pass" and reply["status"] == "done", reply.get("reasons"))
         check("handoff: reply uses contract fields",
               {"case_id", "stage", "status", "outputs", "question", "mismatches"} <= set(reply))
+        check("handoff: output goes to the flat report folder",
+              reply["outputs"] == ["C-0001-report/validation_feedback.json"], reply["outputs"])
         priv = json.loads(next((HIDDEN / "results" / "excel_a").glob("*.json")).read_text()) \
             if (HIDDEN / "results" / "excel_a").exists() else {}
         check("handoff: Rebuild rule ids are cited in the report",
               any("R-0001-03" in it.get("evidence", []) for it in priv.get("items", [])))
+        check("handoff: engine manifest.json rule ids are cited too",
+              any("R-0001-09" in it.get("evidence", []) for it in priv.get("items", [])))
         recs = (tmp / "cc_records" / "verdicts.jsonl").read_text()
         exp = json.loads((HIDDEN / "excel_a" / "expected.json").read_text())
         hidden_vals = {exp["historical"][c] for c in exp["damaged_cells"] if c in exp["historical"]}
@@ -85,7 +92,7 @@ def handoff_checks(man_a: dict) -> None:
         check("handoff: final pass writes labeled report items", len(items) > 5 and
               all(json.loads(x)["label"] in LABELS for x in items))
 
-        bad = dict(req, files=["cases/C-0001/rebuilt/model.xlsx"], retry_count=1)
+        bad = dict(req, files=["C-0001-rebuilt/model.xlsx"], retry_count=1)
         shutil.copy(FX / "excel_a" / "pasted_values.xlsx", reb / "model.xlsx")
         r2 = handoff.handle(dict(bad, dataset="excel_a"), inc, tmp / "out", write_cc=True)
         check("handoff: failing candidate -> failed reply, returned via Recovery Manager",

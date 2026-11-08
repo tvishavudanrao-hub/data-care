@@ -22,6 +22,17 @@ python -m verify.selftest
 
 ## Run
 
+To ship the verifier to Naive, pack the public code (never `verify/hidden/`) and upload it to the shared `tools` folder:
+
+```bash
+python -m verify.pack
+```
+
+```bash
+vetta file upload --file validation_tools.zip --folder tools --scope published
+```
+
+
 From a Naive agent, using the hand-off in `docs/codecare-contracts.md`:
 
 ```bash
