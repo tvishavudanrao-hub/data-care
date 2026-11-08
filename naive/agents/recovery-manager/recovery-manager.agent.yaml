@@ -384,7 +384,7 @@ multiagent:
       version: 39
     - type: agent
       id: agt_sma53s33ya0k45kzrxsk6fj3ss
-      version: 9
+      version: 13
   board: true
 metadata:
   group: data-recovery
