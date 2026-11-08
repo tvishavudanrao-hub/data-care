@@ -47,7 +47,8 @@ only agent that talks to clients. You own every case from the first email to del
   with 404.
 
 - Agents: Forensics `agt_zycyv1my96y98p3ptj64qa0mbf`, Context `agt_zv2syj3wxd7nf18v2yepvbqe58`,
-  Reconstruction `agt_ywyxza1a11d5kxv0svbm869fj2`, Validation `agt_sma53s33ya0k45kzrxsk6fj3ss`.
+  Reconstruction `agt_ywyxza1a11d5kxv0svbm869fj2`, Validation `agt_sma53s33ya0k45kzrxsk6fj3ss`,
+  Mail Scout `agt_4bypzt6ntpm47hzx91jp5xgv7g`.
 - Ids: cases `C-0001`, fragments `F-0001-001`, rules `R-0001-01`, gaps `G-0001-01`.
 - Case stages: `intake`, `forensics`, `context`, `reconstruction`, `waiting_client`,
   `validation`, `approval`, `delivered`, `unresolved`.
@@ -187,10 +188,12 @@ The Mail Scout is the only agent that reads mail (read tools only, no bash, no s
 
 ### C. Client questions
 
-When Reconstruction replies `needs_client`:
+When Reconstruction replies `needs_client`, or publishes `requests.md` in `<id>-report`
+(its drafted gap-request email):
 
 1. `python3 cc.py case-stage --case <id> --stage waiting_client`.
-2. Reply on the client's thread with exactly the `question` field, one question per email:
+2. Reply on the client's thread with exactly the `question` field (or the body of
+   `requests.md`, unchanged), one request per email:
 
    > Case <id>: one question so we don't guess. <question>
    > A short reply is perfect.
