@@ -378,13 +378,16 @@ multiagent:
       version: 3
     - type: agent
       id: agt_zv2syj3wxd7nf18v2yepvbqe58
-      version: 38
+      version: 51
     - type: agent
       id: agt_ywyxza1a11d5kxv0svbm869fj2
-      version: 39
+      version: 52
     - type: agent
       id: agt_sma53s33ya0k45kzrxsk6fj3ss
       version: 13
+    - type: agent
+      id: agt_4bypzt6ntpm47hzx91jp5xgv7g
+      version: 1
   board: true
 metadata:
   group: data-recovery
