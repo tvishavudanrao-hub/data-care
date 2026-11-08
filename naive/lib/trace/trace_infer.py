@@ -977,9 +977,10 @@ def why_sentence(e, h, pair):
 
 
 def describe(e, h):
-    return "%s as the source%s: explains %d of %d cases (shelf-life window %d days after packing)." % (
-        e.src_words(h), (" of %s" % lot_text(h["lots"][:6])) if h["source_type"] == "farm" and h["lots"] else "",
-        len(h["cases"]), e.N, e.shelf)
+    # Rank and source first, so the line reads well on the live board (Angus's ask, board #7).
+    head = "Rank %d %s %s explains %d of %d cases." % (h["rank"], h["source_type"], h["source"], len(h["cases"]), e.N)
+    lots = (" of %s" % lot_text(h["lots"][:6])) if h["source_type"] == "farm" and h["lots"] else ""
+    return "%s %s as the source%s (shelf-life window %d days after packing)." % (head, e.src_words(h), lots, e.shelf)
 
 
 def hyp_record(e, h, pair):
