@@ -4,10 +4,9 @@
 #   - web_fetch, web_search, crm.read, open_panel (not needed; leak risk around the hidden suite)
 #   - handoffs to Reconstruction: replies go to Recovery Manager, which owns the retry loop
 #     (front-desk-and-coordinator skill, section D) and forwards the limited feedback.
-# Model and budget are kept exactly as exported. APPLIED to Naive on 2026-11-08 (version 9; board tools added in version 13)
+# Model and budget are kept exactly as exported. APPLIED to Naive on 2026-11-08 (version 9; board tools added in version 13; budget $5/month, $1/task in version 14, confirmed by Andrei)
 # (naive agent update agt_sma53s33ya0k45kzrxsk6fj3ss --file ...). The Recovery Manager roster still
-# pins Validation v3 until Anna re-saves it. Budget ($1.00/month, $0.50/task) may be too low for test runs: ask the
-# team before raising it.
+# pins Validation v3 until Anna re-saves it. Budget raised to $5.00/month, $1.00/task (Andrei confirmed on the team board).
 name: Validation Agent
 description: 'Validation Agent: audits reconstructions against private held-out checks with the validation-harness
   tool; returns limited, targeted feedback through Recovery Manager; final report separates recovered /
@@ -120,8 +119,8 @@ tools:
       permission: allow
 handoffs: []
 budget:
-  cap_usd: '1.00'
-  max_task_usd: '0.50'
+  cap_usd: '5.00'
+  max_task_usd: '1.00'
   period: month
 metadata:
   group: data-recovery
