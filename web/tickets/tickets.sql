@@ -12,7 +12,12 @@ create table if not exists tickets (
   consent     boolean not null,                       -- agreed to be emailed about this request
   quote_usd   numeric(10,2),
   case_id     text,                                   -- set when the Recovery Manager opens a case
+  session_id  text,                                   -- Recovery Manager session started for this ticket
+  session_started_at timestamptz,                      -- counts toward the daily autostart cap
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
 create index if not exists tickets_status_created on tickets (status, created_at desc);
+-- Existing table from the first version: add the autostart columns.
+alter table tickets add column if not exists session_id text;
+alter table tickets add column if not exists session_started_at timestamptz;
