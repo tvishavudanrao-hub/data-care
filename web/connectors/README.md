@@ -11,7 +11,7 @@ Connectors: **Google Drive, Microsoft 365 (OneDrive and SharePoint), Dropbox and
 client opens /connect/<link>: trust promises, "Connect Google Drive (read-only)"
   -> Google consent (scope drive.readonly)  ->  /connect/google/callback
   -> token stored AES-GCM encrypted; ticket status "approved"
-  -> search Drive with words from the ticket + kind (only spreadsheets, CSV, PDF, docs, mail, code)
+  -> search Drive with words from the ticket + kind (only spreadsheets, CSV, PDF, Word, PowerPoint, OpenDocument, mail, code and config)
   -> copy matches into the Naive file library folder <ticket_id>-incoming (caps: 40 files,
      100 MB each, 300 MB total); every file seen is logged
   -> start the Recovery Manager: "WEBSITE TICKET APPROVED" (section T2) -> case opens -> Forensics scans first
@@ -20,6 +20,12 @@ POST /api/connectors/revoke-expired (cron, x-cc-token): auto-revoke after CONNEC
 ```
 
 **It runs in the website app, not in a Naive agent.** The client's token is a secret, and Naive can't pass secrets into agent sandboxes yet. The agents only ever see copied files, which Forensics scans first.
+
+## What gets copied
+
+Spreadsheets (`.xlsx .xlsm .xls .xlsb .ods .csv`), documents (`.docx .doc .odt .pdf .txt`), slides (`.pptx .ppt`), mail (`.eml .msg`), and code and config (`.py .js .ts .sql .json .yml .yaml`). Google Sheets come back as `.xlsx`; Google Docs and Slides come back as PDF. Photos, archives, installers and anything else are skipped and logged. Spreadsheets and code are what get rebuilt; everything else is evidence.
+
+Step-by-step registration for each provider: `docs/connectors-setup.md`.
 
 ## Trust, enforced in code (each one tested)
 
@@ -58,7 +64,7 @@ Notes:
 
 **3. Database:** apply `web/tickets/tickets.sql`, then `web/connectors/connectors.sql`, to Neon.
 
-**4. Wiring:** in `app/src/handler.js`, before the other routes:
+**4. Wiring:** already done in `app/src/handler.js` (kept in step with `npm run check-copies`). For reference:
    ```js
    import { handleConnectors, sqlConnectorStore } from "../../web/connectors/connectors.js";
    import { naiveFiles } from "../../web/connectors/naive_files.js";
@@ -69,7 +75,7 @@ Notes:
    ```
    Then `npm i @usenaive-sdk/managed-agents` in `app/`. The app's ticket copy in `app/src/tickets/` also needs the `connect_token` change from `web/tickets/tickets.js`.
 
-**5. Recovery Manager:** Anna adds `recovery-manager-section-T2.md` to the skill. It already says "Google Drive"; read that as "the connected storage" (the message names the `source`).
+**5. Recovery Manager:** Anna adds `recovery-manager-section-T2.md` to the skill.
 
 **6. Cron:** call `POST /api/connectors/revoke-expired` daily, for example with a Vercel cron.
 
@@ -80,15 +86,15 @@ node web/connectors/server.js
 ```
 
 1. Open http://127.0.0.1:8791/tickets and submit.
-4. On the connect page, every provider is clickable, each with its own pretend storage. Connect several, then open the status page.
 2. Open the connect link printed in the terminal, then click Connect.
 3. The terminal shows what would be copied and the message the Recovery Manager would receive.
+4. On the connect page, every provider is clickable, each with its own pretend storage. Connect several, then open the status page.
 
 ```bash
 cd web/connectors && npm test
 ```
 
-There are 14 tests, including the real SQL on Postgres via PGlite.
+There are 25 tests, including the real SQL on Postgres via PGlite.
 
 ## Known limits (honest)
 
