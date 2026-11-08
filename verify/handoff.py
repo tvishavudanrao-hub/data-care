@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -53,6 +54,26 @@ class HandoffError(Exception):
     pass
 
 
+def hidden_candidates() -> list[Path]:
+    """Where the private suite may be. Naive can run a client case in a per-client folder
+    (e.g. /home/tenki/clients/<id>/), so $HOME is not always where setup unpacked it."""
+    c = []
+    if os.environ.get("VERIFY_HIDDEN_DIR"):
+        c.append(Path(os.environ["VERIFY_HIDDEN_DIR"]))
+    c.append(Path(__file__).resolve().parent / "hidden")          # repo checkout (owner's laptop)
+    c.append(Path.home() / "validation_private" / "verify" / "hidden")
+    c += sorted(Path("/home").glob("*/validation_private/verify/hidden"))
+    return c
+
+
+def locate_hidden() -> Path | None:
+    for p in hidden_candidates():
+        if (p / "excel_a" / "expected.json").exists():
+            os.environ["VERIFY_HIDDEN_DIR"] = str(p)
+            return p
+    return None
+
+
 def normalise(req: dict) -> dict:
     r = dict(req)
     r.setdefault("case_id", r.get("job_id"))
@@ -66,7 +87,7 @@ def normalise(req: dict) -> dict:
     return r
 
 
-def resolve_dataset(req: dict, candidate: Path) -> str:
+def resolve_dataset(req: dict, candidate: Path) -> str | None:
     """Which private suite to use. Request field > case map > workbook company name."""
     if req.get("dataset"):
         return req["dataset"]
@@ -78,12 +99,14 @@ def resolve_dataset(req: dict, candidate: Path) -> str:
     if req["kind"] == "code":
         return "code_a"
     import openpyxl
-    title = str(openpyxl.load_workbook(candidate, read_only=True)["Model"]["A1"].value or "")
+    try:
+        title = str(openpyxl.load_workbook(candidate, read_only=True)["Model"]["A1"].value or "")
+    except Exception:  # noqa: BLE001 - not our layout at all
+        return None
     for ds, info in L.CASES.items():
         if info["company"].split(" (")[0].split()[0].lower() in title.lower():
             return ds
-    raise HandoffError("cannot tell which dataset this case is: add \"dataset\" to the request "
-                       "or map the case id in VERIFY_CASE_MAP")
+    return None  # not one of the demo companies: no held-out examples exist for it
 
 
 def _rows(cells: list[str]) -> set[int]:
@@ -137,8 +160,37 @@ def prior_attempts(case_id: str) -> int:
     return n
 
 
+def _untested_unknown(req: dict, meta: dict) -> "Verdict":
+    from verify.excel_verifier import sha256
+    from verify.schema import UNTESTED, Item, Verdict
+    v = Verdict(job_id=meta["job_id"], case_id="unknown", artifact_id=meta["artifact_id"],
+                artifact_version=meta["artifact_version"], artifact_sha256=sha256(meta["path"]),
+                attempt=meta["attempt"], retry_count=meta["retry_count"], max_retries=retry.MAX_RETRIES)
+    v.outcome = "untested"
+    v.next_action = retry.ESCALATE
+    v.reasons.append("no held-out examples exist for this workbook (it is not one of the demo datasets), "
+                     "so its behaviour was not tested. Everything rebuilt stays 'reconstructed but untested'; "
+                     "a person decides at the approval gate. Not sent back for retries: nothing failed.")
+    v.items.append(Item("whole workbook", UNTESTED, "untested", [], "no held-out examples for this file"))
+    return v
+
+
 def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dict:
     req = normalise(req)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cc_dir = out_dir / "cc_records"
+    if write_cc and not os.environ.get("CC_URL"):
+        # Naive's vault cannot reach sandbox scripts yet, so records go to files that are
+        # published to <case_id>-report and relayed to the app by sync_records.py.
+        shutil.rmtree(cc_dir, ignore_errors=True)
+        cc_dir.mkdir(parents=True)
+        os.environ["CC_FALLBACK_DIR"] = str(cc_dir)
+    if locate_hidden() is None:
+        return {"case_id": req["case_id"], "stage": "validation", "status": "failed", "outcome": "error",
+                "next_action": retry.ESCALATE, "outputs": [], "question": None, "mismatches": [],
+                "reasons": ["private suite missing: looked in " +
+                            ", ".join(str(p) for p in hidden_candidates()) +
+                            ". Ask the operator (Tvisha) to rerun the one-time setup."]}
     files = [files_root / f for f in req["files"]]
     missing = [str(f) for f in files if not f.exists()]
     if missing:
@@ -165,7 +217,10 @@ def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dic
         if req["kind"] == "excel":
             from verify.excel_verifier import verify_excel  # needs openpyxl + formulas
             dataset = resolve_dataset(req, candidate)
-            v = verify_excel(dataset, candidate, manifest=manifest_from_rebuild(files), **meta)
+            if dataset is None:
+                v = _untested_unknown(req, {**meta, "path": candidate})
+            else:
+                v = verify_excel(dataset, candidate, manifest=manifest_from_rebuild(files), **meta)
         else:
             from verify.code_verifier import verify_code
             dataset = resolve_dataset(req, candidate)
@@ -181,11 +236,12 @@ def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dic
     from verify import store
     store.write_local(v)
     fb = v.to_feedback()
-    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / FEEDBACK_NAME).write_text(json.dumps(fb, indent=2) + "\n")
+    # "untested" is not a failure: nothing goes back to Reconstruction; the approval gate decides.
+    status = "done" if v.outcome in ("pass", "untested") else "failed"
     reply = {
         "case_id": req["case_id"], "stage": "validation",
-        "status": "done" if v.outcome == "pass" else "failed",
+        "status": status,
         "outcome": v.outcome, "next_action": v.next_action,
         "outputs": [f"{report_folder(req['case_id'])}/{FEEDBACK_NAME}"],
         "question": None,
@@ -196,7 +252,14 @@ def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dic
     }
     if write_cc:
         final = v.outcome == "pass" or v.next_action in (retry.ESCALATE, retry.BLOCKED)
+        final = final or v.outcome == "untested"
         reply["stored"] = store.write_cc(v, req["case_id"], report_items=final)
+        if cc_dir.exists():
+            # publish these too: the relay replays cc.py's <table>.jsonl files from <case_id>-report
+            reply["outputs"] += [f"{report_folder(req['case_id'])}/{p.name}" for p in sorted(cc_dir.glob("*.jsonl"))]
+            reply["publish_from"] = {f"{report_folder(req['case_id'])}/{p.name}": str(p)
+                                     for p in sorted(cc_dir.glob("*.jsonl"))}
+            reply["publish_from"][f"{report_folder(req['case_id'])}/{FEEDBACK_NAME}"] = str(out_dir / FEEDBACK_NAME)
     return reply
 
 
