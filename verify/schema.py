@@ -97,10 +97,42 @@ class Verdict:
             tiers[it.label].append(f"{it.item_id}{cite}" + (f" - {it.reason}" if it.reason else ""))
         return tiers
 
+    def cell_items(self) -> list[dict]:
+        """One report line per cell (per item when an item has no cells), so counts match the report.
+
+        Item labels are per row; every cell in a row shares its row's label. Each line cites the
+        same evidence as its row (rule ids, fragment ids or sources)."""
+        from verify import layout as L  # local: schema stays usable for the code case too
+        out = []
+        for it in self.items:
+            if not it.cells or not all("!" in c for c in it.cells):
+                out.append({"item": it.item_id, "label": it.label, "cites": it.evidence or [it.item_id]})
+                continue
+            for ref in it.cells:
+                sheet, cell = ref.split("!")
+                col, row = cell[0], int(cell[1:])
+                if sheet == L.MODEL and row in L.MODEL_ROWS:
+                    what = L.row_label(self.case_id, row) if self.case_id in L.CASES else L.MODEL_ROWS[row][1]
+                    when = "Total" if col == L.TOTAL_COL else dict(zip(L.QCOLS, L.QUARTERS)).get(col, col)
+                    name = f"{ref} ({what}, {when})"
+                elif sheet == L.ASSUMPTIONS and row in L.ASSUMPTION_ROWS:
+                    name = f"{ref} ({L.ASSUMPTION_ROWS[row][1]})"
+                else:
+                    name = ref
+                out.append({"item": name, "label": it.label, "cites": it.evidence or [it.item_id]})
+        return out
+
+    def counts(self) -> dict[str, int]:
+        c = {label: 0 for label in LABELS}
+        for ci in self.cell_items():
+            c[ci["label"]] += 1
+        return c
+
     def to_private(self) -> dict:
         d = asdict(self)
         d["verdict"] = self.verdict
         d["report"] = self.report()
+        d["counts"] = self.counts()
         return d
 
     def to_feedback(self) -> dict:
@@ -120,6 +152,7 @@ class Verdict:
                 "attempt": self.attempt, "retry_count": self.retry_count, "max_retries": self.max_retries,
                 "outcome": self.outcome, "verdict": self.verdict, "next_action": self.next_action,
                 "reasons": self.reasons,
+                "counts": self.counts(),
                 "checks": {"run": sum(e.result != "not_run" for e in self.examples),
                            "failed": sum(e.result in ("fail", "error") for e in self.examples)},
                 "items": fb_items}

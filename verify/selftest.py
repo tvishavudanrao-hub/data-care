@@ -92,6 +92,12 @@ def handoff_checks(man_a: dict) -> None:
         items = (tmp / "out" / "cc_records" / "report_items.jsonl").read_text().splitlines()
         check("handoff: final pass writes labeled report items", len(items) > 5 and
               all(json.loads(x)["label"] in LABELS for x in items))
+        counts = reply.get("counts") or json.loads((tmp / "out" / "validation_feedback.json").read_text())["counts"]
+        check("handoff: one report line per cell, matching the label counts (board = report)",
+              len(items) == sum(counts.values()) == 109 and counts["recovered"] == 27 and counts["unresolved"] == 1,
+              (len(items), counts))
+        check("handoff: per-cell lines name the cell, row and quarter",
+              any(json.loads(x)["item"] == "Model!C7 (Volume discount, Q2 2025)" for x in items))
 
         check("handoff: verdict record carries the outcome field",
               all(json.loads(x).get("outcome") == "pass" for x in recs.splitlines()))

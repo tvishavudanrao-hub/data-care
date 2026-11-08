@@ -54,7 +54,8 @@ def shared_results(v: Verdict) -> list[dict]:
     """The `results` jsonb for the shared verdicts table. No hidden values."""
     rows = [{"example_id": "_outcome", "result": v.outcome, "expected": WITHHELD, "actual": WITHHELD,
              "verdict_id": v.verdict_id, "dataset": v.case_id, "artifact_version": v.artifact_version,
-             "artifact_sha256": v.artifact_sha256, "attempt": v.attempt, "next_action": v.next_action}]
+             "artifact_sha256": v.artifact_sha256, "attempt": v.attempt, "next_action": v.next_action,
+             "counts": v.counts()}]
     for e in v.examples:
         # final-pool ids are not even named, so repeated attempts learn nothing about them
         eid = "fresh-final-check" if e.pool == "final" else e.example_id
@@ -81,13 +82,14 @@ def write_cc(v: Verdict, case_id: str, *, report_items: bool) -> dict:
                              "results": shared_results(v), "retry_count": v.retry_count})
         n = 0
         if report_items:
-            for it in v.items:
-                cites = it.evidence or [it.item_id]
-                cc.post("report_items", {"case_id": case_id, "item": it.item_id, "label": it.label,
-                                         "cites": cites})
+            # one line per cell, so the board's label counts match the report
+            for ci in v.cell_items():
+                cc.post("report_items", {"case_id": case_id, "item": ci["item"], "label": ci["label"],
+                                         "cites": ci["cites"]})
                 n += 1
         cc.post("events", {"case_id": case_id, "agent": "validation", "stage": "validation",
-                           "message": f"attempt {v.attempt}: {v.outcome} -> {v.next_action}",
+                           "message": f"attempt {v.attempt}: {v.outcome} -> {v.next_action}; " +
+                                      ", ".join(f"{n} {k}" for k, n in v.counts().items() if n),
                            "cost_usd": 0.0, "human_stepped_in": False})
         status.update(written=True, report_items=n,
                       note="database write via the Code Care app" if target == "app"
