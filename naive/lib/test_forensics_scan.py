@@ -87,6 +87,33 @@ class ForensicsScanTests(unittest.TestCase):
         r = fs.scan("C-0001", i, os.path.join(d, "out"))
         self.assertEqual(r["files"][0]["status"], "skipped")
 
+    def test_scanned_pdf_needs_visual_reading(self):
+        scanned = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n2 0 obj<</Subtype /Image /Width 10>>endobj\n%%EOF"
+        r, o = self.run_scan({"invoice.pdf": scanned})
+        f = r["files"][0]
+        self.assertEqual(f["status"], "needs-visual-reading")
+        self.assertIn("scanned PDF", f["findings"][0]["detail"])
+        with open(os.path.join(o, "forensics_gaps.json")) as fh:
+            self.assertIn("image-capable", json.load(fh)[0]["where_to_look"][0])
+        self.assertIn("invoice.pdf", r["possible_source_files"])
+
+    def test_text_pdf_is_clean(self):
+        text = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n2 0 obj<</Length 30>>stream\nBT /F1 12 Tf (Invoice 42) Tj ET\nendstream\nendobj\n%%EOF"
+        r, _ = self.run_scan({"invoice.pdf": text})
+        self.assertEqual(r["files"][0]["status"], "clean")
+
+    def test_compressed_text_stream_counts_as_text(self):
+        import zlib
+        stream = zlib.compress(b"BT /F1 12 Tf (Lot 77) Tj ET")
+        pdf = b"%PDF-1.4\n1 0 obj<</Type /Page>>endobj\n2 0 obj<</Length 10>>stream\n" + stream + b"\nendstream\nendobj\n%%EOF"
+        r, _ = self.run_scan({"a.pdf": pdf})
+        self.assertEqual(r["files"][0]["status"], "clean")
+
+    def test_image_flagged_for_visual_reading(self):
+        r, _ = self.run_scan({"receipt.png": b"\x89PNG\r\n\x1a\n" + b"\x00" * 20})
+        self.assertEqual(r["files"][0]["detected_type"], "image")
+        self.assertEqual(r["files"][0]["status"], "needs-visual-reading")
+
     def test_extension_mismatch(self):
         r, _ = self.run_scan({"fake.xlsx": b"just text"})
         self.assertTrue(any(x["class"] == "inconsistent" for x in r["files"][0]["findings"]))
