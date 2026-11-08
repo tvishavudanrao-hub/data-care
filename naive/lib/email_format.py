@@ -36,12 +36,20 @@ INBOX = "datacare-recover@agentmail.to"
 LABELS_NOTE = ("Every item in our reports is labeled recovered, reconstructed and tested, "
                "reconstructed but untested, or unresolved. We never guess a value.")
 
-INK = "#1f2933"
-MUTED = "#616e7c"
-ACCENT = "#0b6e4f"
-RULE = "#e4e7eb"
-PANEL = "#f5f7fa"
-FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+# Data Care client-facing brand (Balthazar, 2026-11-08): website, /tickets and emails.
+INK = "#141414"
+BODY = "#4A4A4A"
+MUTED = "#7A7068"
+PAGE = "#FBF8F6"
+CARD = "#FFFFFF"
+RULE = "#ECE6E1"
+ACCENT = "#B4470F"          # accent word / labels
+SUCCESS, SUCCESS_BG = "#13795B", "#E6F4EE"
+GRAD = "linear-gradient(135deg,#FF8A1F 0%,#F2557A 50%,#7B3FE4 100%)"
+GRAD_FALLBACK = "#F2557A"   # Outlook ignores gradients
+FONT = "Inter, Helvetica, Arial, sans-serif"
+SERIF = "'Instrument Serif', Georgia, 'Times New Roman', serif"
+PANEL = PAGE
 
 KIND_LABEL = {
     "receipt": "Case opened",
@@ -101,7 +109,7 @@ def build(c: dict) -> dict:
     text = "\n".join(t).strip() + "\n"
 
     # ---------- HTML (table layout + inline styles: renders in Gmail, Outlook, Apple Mail) ----------
-    p_style = f"margin:0 0 16px 0;font-size:15px;line-height:1.6;color:{INK};"
+    p_style = f"margin:0 0 16px 0;font-size:15px;line-height:1.6;color:{BODY};"
     body = [f'<p style="{p_style}">{esc(hello)}</p>']
     body += [f'<p style="{p_style}">{esc(p)}</p>' for p in paras]
     if table:
@@ -110,13 +118,14 @@ def build(c: dict) -> dict:
             f'<td style="padding:10px 14px;font-size:14px;color:{INK};font-weight:600;border-bottom:1px solid {RULE};">{esc(v)}</td></tr>'
             for k, v in table)
         body.append(f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-                    f'style="border-collapse:collapse;border:1px solid {RULE};border-radius:6px;margin:4px 0 20px 0;">{rows}</table>')
+                    f'style="border-collapse:separate;border-spacing:0;border:1px solid {RULE};border-radius:12px;margin:4px 0 24px 0;overflow:hidden;">{rows}</table>')
     if bullets:
         items = "".join(f'<li style="margin:0 0 6px 0;">{esc(b)}</li>' for b in bullets)
-        body.append(f'<ul style="margin:0 0 20px 0;padding-left:20px;font-size:15px;line-height:1.6;color:{INK};">{items}</ul>')
+        body.append(f'<ul style="margin:0 0 24px 0;padding-left:20px;font-size:15px;line-height:1.6;color:{BODY};">{items}</ul>')
     if callout:
-        body.append(f'<div style="margin:4px 0 22px 0;padding:14px 16px;background:{PANEL};border-left:4px solid {ACCENT};'
-                    f'font-size:15px;line-height:1.5;color:{INK};font-weight:600;">{esc(callout)}</div>')
+        tone_fg, tone_bg = (SUCCESS, SUCCESS_BG) if kind == "delivery" else (INK, PAGE)
+        body.append(f'<div style="margin:4px 0 24px 0;padding:16px 18px;background:{tone_bg};border:1px solid {RULE};border-radius:12px;'
+                    f'font-size:15px;line-height:1.5;color:{tone_fg};font-weight:600;">{esc(callout)}</div>')
     body.append(f'<p style="margin:8px 0 0 0;font-size:15px;line-height:1.6;color:{INK};">{esc(closing)}<br>'
                 f'<strong>The {BRAND} team</strong><br>'
                 f'<span style="color:{MUTED};font-size:13px;">{esc(INBOX)}</span></p>')
@@ -125,20 +134,24 @@ def build(c: dict) -> dict:
     html_doc = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title></head>
-<body style="margin:0;padding:0;background:{PANEL};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{PANEL};padding:24px 12px;">
+<body style="margin:0;padding:0;background:{PAGE};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{PAGE};padding:32px 16px;">
 <tr><td align="center">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid {RULE};border-radius:8px;font-family:{FONT};">
-<tr><td style="padding:22px 32px;border-bottom:3px solid {ACCENT};">
-<div style="font-size:20px;font-weight:700;color:{INK};letter-spacing:0.2px;">{BRAND}</div>
-<div style="font-size:12px;color:{MUTED};margin-top:2px;">{esc(TAGLINE)}</div>
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:{CARD};border:1px solid {RULE};border-radius:14px;font-family:{FONT};overflow:hidden;">
+<tr><td style="height:6px;line-height:6px;font-size:0;background:{GRAD_FALLBACK};background-image:{GRAD};">&nbsp;</td></tr>
+<tr><td style="padding:24px 32px 0 32px;">
+<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+<td style="width:28px;height:28px;border-radius:8px;background:{GRAD_FALLBACK};background-image:{GRAD};">&nbsp;</td>
+<td style="padding-left:10px;font-family:{FONT};font-size:18px;font-weight:600;color:{INK};">{BRAND}</td>
+</tr></table>
+<div style="font-size:13px;color:{MUTED};margin-top:6px;">{esc(TAGLINE)}</div>
 </td></tr>
 <tr><td style="padding:28px 32px 8px 32px;">
-<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:{ACCENT};margin-bottom:6px;">{esc(KIND_LABEL.get(kind, "Case update"))}</div>
-<h1 style="margin:0 0 20px 0;font-size:22px;line-height:1.3;color:{INK};font-weight:700;">{esc(title)}</h1>
+<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:{ACCENT};margin-bottom:8px;">{esc(KIND_LABEL.get(kind, "Case update"))}</div>
+<h1 style="margin:0 0 24px 0;font-family:{SERIF};font-size:30px;line-height:1.2;color:{INK};font-weight:400;">{esc(title)}</h1>
 {''.join(body)}
 </td></tr>
-<tr><td style="padding:20px 32px 24px 32px;border-top:1px solid {RULE};font-size:12px;line-height:1.5;color:{MUTED};">
+<tr><td style="padding:20px 32px 28px 32px;border-top:1px solid {RULE};font-size:12px;line-height:1.6;color:{MUTED};background:{PAGE};">
 {case_line}{esc(LABELS_NOTE)}
 </td></tr>
 </table>
