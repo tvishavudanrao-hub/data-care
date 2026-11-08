@@ -107,8 +107,8 @@ tools:
       enabled: false
       permission: deny
     email.send:
-      enabled: true
-      permission: ask
+      enabled: false
+      permission: deny
     fetch_file:
       enabled: true
       permission: allow
