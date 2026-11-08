@@ -406,3 +406,13 @@ test("Word, PowerPoint, OpenDocument and binary Excel files count as evidence; G
   assert.ok(dl && dl.url.includes(encodeURIComponent("application/pdf")));
   assert.deepEqual(s.uploads.map((u) => u.name), ["google-Forecast board deck.pdf"]);
 });
+
+test("a rejected sign-in shows the provider's error code, never its free text", async () => {
+  const s = await setup([]);
+  const g = s.deps.providers.google;
+  const bad = googleDrive(env, async () => Response.json({ error: "invalid_client", error_description: "secret <b>xyz</b>" }, { status: 401 }));
+  await assert.rejects(bad.exchange("abc"), /Google sign-in failed \(401: invalid_client\)/);
+  const odd = googleDrive(env, async () => Response.json({ error: "<script>" }, { status: 400 }));
+  await assert.rejects(odd.exchange("abc"), (e) => e.message === "Google sign-in failed (400)");
+  assert.ok(g);
+});
