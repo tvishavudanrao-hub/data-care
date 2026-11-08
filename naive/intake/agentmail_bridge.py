@@ -68,6 +68,8 @@ SUPPLIERS = {
 }
 SEARCH_INBOXES = ("datacare-recover@agentmail.to", "codecare-recover@agentmail.to")  # client's old mail
 MAX_SEARCH_HITS = 10
+PUBLIC_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com",
+               "icloud.com", "me.com", "proton.me", "aol.com"}
 DONE_LABEL = "dc-processed"
 SESSION_BUDGET_USD = "3"  # Andrei and Balthazar OKed $3 per run (2026-11-08)
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
@@ -363,21 +365,28 @@ def mail_search(key: str, dry_run: bool) -> None:
         if req.get("case_id") != case_id:
             log(f"skip search request {fid}: case_id does not match folder {folder}")
             continue
+        if case_id in state.get("search_cases_done", []):  # one search per case, even if the RM asks twice
+            done.add(fid)
+            state["search_requests_done"] = sorted(done)
+            save_state(state)
+            continue
         client = sender_address(str(req.get("client", "")))
         terms = sorted({str(t).strip().lower() for g in req.get("gaps", []) for t in g.get("terms", [])
                         if 2 < len(str(t).strip()) < 60})[:20]
         log(f"mail search {case_id}: client {client or '?'} terms {terms}")
-        if dry_run or not client or not terms:
-            if not dry_run:
-                done.add(fid)
+        if dry_run:
             continue
         q = urllib.parse.quote
         hits = []
-        for inbox in SEARCH_INBOXES:
+        # With no client or terms we search nothing, but still wake the RM so the case moves on.
+        for inbox in (SEARCH_INBOXES if client and terms else ()):
+            if len(hits) >= MAX_SEARCH_HITS:
+                break
             lst = am("GET", f"/inboxes/{q(inbox)}/messages", key, query={"labels": ["received"], "limit": 100})
             for item in lst.get("messages", []):
                 frm = sender_address(item.get("from", ""))
-                if frm != client and _domain(frm) != _domain(client):
+                same = frm == client or (_domain(client) not in PUBLIC_MAIL and _domain(frm) == _domain(client))
+                if not same:
                     continue
                 full = am("GET", f"/inboxes/{q(inbox)}/messages/{q(item['message_id'])}", key)
                 text = " ".join([full.get("subject") or "", full.get("extracted_text") or full.get("text") or ""]).lower()
@@ -416,6 +425,7 @@ def mail_search(key: str, dry_run: bool) -> None:
         log(f"  {len(hits)} matching emails, {len(files)} files -> {folder}; started {ses.get('id')}")
         done.add(fid)
         state["search_requests_done"] = sorted(done)
+        state["search_cases_done"] = sorted(set(state.get("search_cases_done", [])) | {case_id})
         save_state(state)
 
 
