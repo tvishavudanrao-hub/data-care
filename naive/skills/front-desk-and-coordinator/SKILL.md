@@ -119,7 +119,7 @@ Look up `thread_id` in the index.
 - **New thread with attachments:** open a case:
 
 1. Allocate the next case id `C-NNNN` (4 digits) from the index.
-2. Pick the kind from attachment types: `.xlsx`/`.xlsm`/`.xls`/`.csv` model → `excel`;
+2. Pick the kind from the request and attachment types (trace-back first, see the quote table): `.xlsx`/`.xlsm`/`.xls`/`.csv` model → `excel`;
    `.py`/`.js`/`.ts`/`.yml` with a code request → `code`; otherwise `other`.
 3. `python3 cc.py case-new --case <id> --client-email <from> --kind <kind> --quote <usd>`
    (stage `intake`).
@@ -137,8 +137,15 @@ Look up `thread_id` in the index.
    > Every item in the final report is labeled recovered, reconstructed and tested,
    > reconstructed but untested, or unresolved; we never guess a value.
 
-   Quote (demo pricing): `excel` $450, `code` $600, `other` $300, plus $50 per attachment
-   beyond three.
+   Quote (demo pricing, Nash's table; a person approves every quote before it goes out):
+
+   | Case | Kind | Quote |
+   | --- | --- | --- |
+   | Excel model recovery | `excel` | $450 fixed |
+   | Lost code / module recovery | `code` | $450 fixed |
+   | Food-outbreak trace-back (the request asks to find the source of an outbreak, recall or contamination from invoices, lot codes, shipping or delivery records) | `other` | $2,500 per investigation, plus $400 per extra batch of 100 supplier documents |
+   | Clinic checkup | `checkup` | free |
+   | Anything else | `other` | `ask_operator` for a price; never invent one |
 
 To reply on the thread, use the `thread_id` and `message_id` from the bridge's JSON.
 
