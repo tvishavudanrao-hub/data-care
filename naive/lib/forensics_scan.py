@@ -3,7 +3,7 @@
 
     python3 forensics_scan.py --case C-0001 --in-dir ./incoming --out-dir ./out
 
-Writes to --out-dir: damage_report.json, fragments.json, gaps.json, working/ (clean copies) and quarantine/
+Writes to --out-dir: damage_report.json, forensics_fragments.json, forensics_gaps.json, working/ (clean copies) and quarantine/
 (flagged files, original bytes untouched). Standard library only, Python 3.8+.
 Never prints or stores a secret value: only file, line and kind.
 """
@@ -24,6 +24,9 @@ SECRETS = [("aws access key", re.compile(rb"AKIA[0-9A-Z]{16}")),
            ("private key block", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
            ("password assignment", re.compile(rb"(?i)password\s*[=:]\s*\S{4,}"))]
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+# Forensics ids start in their own block so they never collide with Context's in cc.py (F-0001-901.., G-0001-91..).
+FRAG_BASE, GAP_BASE = 900, 90
+MAX_UNZIPPED = 200 * 1024 * 1024
 
 
 def sniff(data):
@@ -56,6 +59,10 @@ def scan_xlsx(path):
     out = []
     try:
         z = zipfile.ZipFile(path)
+        if sum(i.file_size for i in z.infolist()) > MAX_UNZIPPED:
+            return [finding("corrupted", "container", "unzipped size over 200 MB: not opened (possible zip bomb)", "unknown", 0.8)]
+        if any("vbaproject" in n.lower() for n in z.namelist()):
+            out.append(finding("undocumented", "vbaProject.bin", "macro project present; not run", "n/a", 0.9))
         bad = z.testzip()
         if bad:
             out.append(finding("corrupted", bad, "zip member fails CRC", "partial"))
@@ -120,6 +127,10 @@ def scan(case, in_dir, out_dir):
         names += [os.path.relpath(os.path.join(dp, f), in_dir).replace(os.sep, "/") for f in fn]
     for name in sorted(names):
         p = os.path.join(in_dir, name)
+        if os.path.islink(p):
+            report.append({"file": name, "detected_type": "symlink", "sha256": "", "size": 0, "status": "skipped",
+                           "findings": [finding("inconsistent", name, "symbolic link not followed", "n/a", 1.0)]})
+            continue
         with open(p, "rb") as fh:
             data = fh.read()
         kind = sniff(data)
@@ -148,15 +159,15 @@ def scan(case, in_dir, out_dir):
         report.append({"file": name, "detected_type": kind, "sha256": hashlib.sha256(data).hexdigest(),
                        "size": len(data), "status": status, "findings": fs})
         for f in fs:
-            frags.append({"fragment_id": "F-%s-%03d" % (num, len(frags) + 1), "source_file": name, "location": f["where"],
+            frags.append({"fragment_id": "F-%s-%03d" % (num, FRAG_BASE + len(frags) + 1), "source_file": name, "location": f["where"],
                           "type": "clue", "confidence": f["confidence"], "notes": "%s: %s" % (f["class"], f["detail"])})
             if f["class"] in ("missing", "corrupted"):
-                gaps.append({"gap_id": "G-%s-%02d" % (num, len(gaps) + 1), "what": "%s: %s" % (name, f["detail"]),
+                gaps.append({"gap_id": "G-%s-%02d" % (num, GAP_BASE + len(gaps) + 1), "what": "%s: %s" % (name, f["detail"]),
                              "why": f["class"], "status": "open",
                              "where_to_look": ["other files in the case folder", "exports", "older copies"]})
     sources = [r["file"] for r in report if r["status"] == "clean"]
     dr = {"case_id": case, "stage": "forensics", "files": report, "possible_source_files": sources}
-    for fn, obj in (("damage_report.json", dr), ("fragments.json", frags), ("gaps.json", gaps)):
+    for fn, obj in (("damage_report.json", dr), ("forensics_fragments.json", frags), ("forensics_gaps.json", gaps)):
         with open(os.path.join(out_dir, fn), "w") as fh:
             json.dump(obj, fh, indent=2)
     return dr
