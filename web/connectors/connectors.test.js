@@ -391,3 +391,18 @@ test("connecting a second account adds files to the same ticket instead of openi
   assert.match(s.sessions[1], /^WEBSITE TICKET MORE FILES\./);
   assert.match(s.sessions[1], /do not open a second case/);
 });
+
+test("Word, PowerPoint, OpenDocument and binary Excel files count as evidence; Google Slides come back as PDF", async () => {
+  const { wanted, mimeFor } = await import("./providers.js");
+  for (const n of ["memo.doc", "Deck.PPTX", "old.ppt", "model.xlsb", "budget.ods", "notes.odt", "brief.docx"]) assert.ok(wanted(n), n);
+  for (const n of ["photo.jpg", "setup.exe", "archive.zip", "noext"]) assert.ok(!wanted(n), n);
+  assert.equal(mimeFor("Deck.pptx"), "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  const slides = { id: "s1", name: "Forecast board deck", mimeType: "application/vnd.google-apps.presentation" };
+  const s = await setup([slides]);
+  await connect(s);
+  const search = s.g.calls.find((c) => new URL(c.url).pathname === "/drive/v3/files");
+  assert.ok(new URL(search.url).searchParams.get("q").includes("application/vnd.google-apps.presentation"));
+  const dl = s.g.calls.find((c) => c.url.includes("/files/s1/export"));
+  assert.ok(dl && dl.url.includes(encodeURIComponent("application/pdf")));
+  assert.deepEqual(s.uploads.map((u) => u.name), ["google-Forecast board deck.pdf"]);
+});
