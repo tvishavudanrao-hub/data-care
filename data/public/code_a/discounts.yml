@@ -1,0 +1,16 @@
+# Alderbank Outfitters invoice discount settings
+# Exported from the billing admin panel on 2026-09-30. Synthetic demo data.
+currency: USD
+rounding: half_up_to_cent      # round the final discount amount once
+volume_tiers:                  # by total units on the invoice
+  - min_units: 100
+    rate: 0.03
+  - min_units: 500
+    rate: 0.06
+  - min_units: 1000
+    rate: 0.09
+loyalty_bonus:                 # added on top of the volume rate
+  standard: 0.00
+  silver: 0.01
+  gold: 0.02
+# max_combined_rate: see finance policy FIN-112 (setting not exported)

@@ -1,0 +1,110 @@
+{
+  "case_id": "excel_a",
+  "workbook": "alderbank_model_damaged.xlsx",
+  "sheets": [
+    "Model",
+    "Assumptions"
+  ],
+  "quarters": {
+    "B": "Q1 2025",
+    "C": "Q2 2025",
+    "D": "Q3 2025",
+    "E": "Q4 2025",
+    "F": "Q1 2026",
+    "G": "Q2 2026",
+    "H": "Q3 2026",
+    "I": "Q4 2026"
+  },
+  "total_column": "J",
+  "model_rows": {
+    "3": {
+      "label": "Units sold",
+      "kind": "input"
+    },
+    "4": {
+      "label": "List price per unit",
+      "kind": "input"
+    },
+    "5": {
+      "label": "Gross revenue",
+      "kind": "money"
+    },
+    "6": {
+      "label": "Discount rate",
+      "kind": "ratio"
+    },
+    "7": {
+      "label": "Volume discount",
+      "kind": "money"
+    },
+    "8": {
+      "label": "Net revenue",
+      "kind": "money"
+    },
+    "9": {
+      "label": "Cost of goods sold",
+      "kind": "money"
+    },
+    "10": {
+      "label": "Gross profit",
+      "kind": "money"
+    },
+    "11": {
+      "label": "Gross margin %",
+      "kind": "ratio"
+    },
+    "12": {
+      "label": "Operating expenses",
+      "kind": "input"
+    },
+    "13": {
+      "label": "Operating income",
+      "kind": "money"
+    },
+    "14": {
+      "label": "Net revenue growth vs prior quarter",
+      "kind": "ratio"
+    }
+  },
+  "assumption_rows": {
+    "3": {
+      "cell": "B3",
+      "label": "COGS %"
+    },
+    "4": {
+      "cell": "B4",
+      "label": "Tier 1 threshold (units per quarter)"
+    },
+    "5": {
+      "cell": "B5",
+      "label": "Tier 1 discount rate"
+    },
+    "6": {
+      "cell": "B6",
+      "label": "Tier 2 threshold (units per quarter)"
+    },
+    "7": {
+      "cell": "B7",
+      "label": "Tier 2 discount rate"
+    }
+  },
+  "total_rows": {
+    "3": "count",
+    "5": "money",
+    "6": "ratio",
+    "7": "money",
+    "8": "money",
+    "9": "money",
+    "10": "money",
+    "11": "ratio",
+    "12": "money",
+    "13": "money"
+  },
+  "rules_for_candidates": [
+    "Keep sheet names, row labels (column A) and cell addresses unchanged.",
+    "Input cells (kind=input and Assumptions!B3:B7) hold constants, never formulas.",
+    "Calculated cells hold formulas that reference the input cells, so the model responds when inputs change. Pasted values are rejected.",
+    "Model!B14 stays empty (no prior quarter).",
+    "Leave a cell blank when no surviving evidence supports a value, and list it as unresolved in the manifest. Do not invent numbers."
+  ]
+}

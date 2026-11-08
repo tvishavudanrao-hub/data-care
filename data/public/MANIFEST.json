@@ -1,0 +1,21 @@
+{
+  "seed": 20261107,
+  "files": {
+    "code_a/CHANGELOG_excerpt.md": "4101b4e0e9b2cbb300f30f150d2baeb78b29c83823f8fa2ffa63f004ec8c2e08",
+    "code_a/discounts.yml": "7d8896be2ccb69108cb3984b17b1c6b4a73415ddc829a8ec6a1fa96743061540",
+    "code_a/invoices.csv": "6c64443ea3c2375cb113f119a06a6dc7d566f6e357590e8c7131813823193e71",
+    "code_a/invoicing.py": "6892df9303a9d69592e72d7014d071019092501739aa86af311c0d48a2144004",
+    "excel_a/alderbank_board_report_Q3_2026.md": "0933898aa34e98ba9cdc8029730a58d4b250f16ebf6f095c8ab9feb091b9a16f",
+    "excel_a/alderbank_cfo_model_rules.eml": "3d7cc0dfbd7a520c4262b1c2db9b167a1d2269d773cf7064d2ca4e9c49489338",
+    "excel_a/alderbank_erp_export_2025Q1-2026Q3.csv": "7fffda7a2fd9c0645085e9d7352d691b0eb9eed64169bd7eb5ac3da850d7fc66",
+    "excel_a/alderbank_model_damaged.xlsx": "e0f963fd8969689f59a823164c7ae9529a96b9d46aa5c5faeecc847b8dc2c934",
+    "excel_a/layout.json": "4b4bf10c06ccd032c6d37b667d32c43bd8e78c55cee67017e51e4665313437cb",
+    "excel_b/brightwell_board_report_Q3_2026.md": "81c695f8047069ed4076972b57f75277f167580d681380d78fed6f4db6a9a861",
+    "excel_b/brightwell_cfo_model_rules.eml": "a272e6bc3c6a723fc692138bb79dedfc41b545664c89c14bf511539d86c68f9e",
+    "excel_b/brightwell_erp_export_2025Q1-2026Q3.csv": "5ecd2b3bb91a9ceaba28e2b80803944f27095daae62046c796e8b6f62ff0cff6",
+    "excel_b/brightwell_model_damaged.xlsx": "174102afd805c244c682738893987ed8b3440c2e97a7a3e318d5954c3ca0fa64",
+    "excel_b/layout.json": "acdce384556a6e93afd72454ba7a5051e56f39f3e8f49b1dc8e590b5ad08950d",
+    "scanner_fixtures/EICAR_TEST_MARKER_harmless.txt": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+    "scanner_fixtures/README.md": "52121e35f0f34c5af6a55e7c88d62f99a00532a2e430c84b797b0cd6b260b35f"
+  }
+}
