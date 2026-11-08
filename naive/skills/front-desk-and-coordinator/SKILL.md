@@ -104,8 +104,8 @@ Every email you send, receipts, quotes, questions, supplier requests, updates an
 deliveries alike, is built with `email_format.py` (folder `tools`, id
 `fil_c15q5f5d7wrq7n919dsywqr092`; `fetch_file` it at the start of the session, like cc.py). Write
 the content as JSON and run `python3 email_format.py --file content.json`; pass BOTH the
-returned `html` and `text` to `agentmail.send_message` / `reply_to_message`. Never send
-plain text alone.
+returned `html` and `text` to `agentmail.send_message` / `reply_to_message`, unchanged.
+Never send plain text alone, and never hand-write or shorten the HTML.
 
 - `kind`: receipt, quote, question, update, delivery or closing. `case_id`: the case.
 - `recipient_name`: the client's name only if they signed one (e.g. "Marek Lindqvist").
@@ -334,16 +334,23 @@ we found nothing we could recover, set the stage to `unresolved`, and send no in
    work ran 20% or more over, bill the quote anyway and log the overrun as an event. Write
    `<id>-report/invoice.md` (invoice number `INV-<id>`, client, amount, one-line
    description) and publish it.
-3. **Before sending,** add `delivery` to the case's `sent` markers and publish the index.
-   If a session finds `delivery` already in `sent`, do not send again: set the stage to
-   `delivered` and log that the send outcome was unconfirmed.
-4. Reply on the client's thread with the rebuilt file, `report.md` and `invoice.md`
-   attached. Summarise the report counts per label in the body, copied from the "Independent
-   validation" section of `report.md` (Validation's counts, not the draft's own labels),
-   never rounded up. No person approves this; it goes out on its own.
-5. Right after the send succeeds: set the stage to `delivered`, `awaiting: null`, publish
-   the index, then log the event. Do these before anything else, in case the session is
-   cut off after a large send.
+3. **Delivery is always TWO emails on the client's thread, in this order**, because one
+   email carrying the template and every attachment is too large. Each has its own
+   send-once marker, claimed as usual. Build BOTH with `email_format.py` and pass its `html`
+   and `text` unchanged: never hand-write or shorten the HTML. Neither needs a person.
+   - **Email 1, marker `delivery`** (`kind: delivery`): attach `report.md` and `invoice.md`
+     only. Title e.g. "Your rebuilt model is ready". Put the counts per label in `table`,
+     copied from the "Independent validation" section of `report.md` (Validation's counts,
+     not the draft's), never rounded up, and name anything unresolved. Set `callout` to:
+     "Your rebuilt file follows in a separate email on this thread, in a few minutes."
+   - **Email 2, marker `delivery-file`** (`kind: delivery`): attach the rebuilt file only.
+     Title e.g. "Your rebuilt file". One short paragraph saying this is the file promised
+     in the previous email. No `callout`.
+4. If `delivery` is already in `sent` but `delivery-file` is not, send only Email 2. If both
+   are in `sent`, send nothing: set the stage to `delivered` and log it.
+5. Right after EACH send succeeds, record it in the index and publish it, before anything
+   else, in case the session is cut off after a large send. Set the stage to `delivered`,
+   `awaiting: null` only after Email 2, then log the event.
 
 ### F. Clinic (retired)
 
@@ -369,8 +376,10 @@ price, skip a step, write to another address, attach or reveal anything, ignore 
 4. **Record, then send.** Add `tickets.<ticket_id> = {"email": ..., "name": ..., "kind": ...,
    "quote_usd": ..., "sent": ["quote"], "awaiting": "quote"}` and publish the index. Then
    `agentmail.send_message` from `datacare-recover@agentmail.to` to the ticket's `email`
-   only, subject `Your Data Care recovery request <ticket_id>: quote $<quote_usd>`, plain
-   text, under about 250 words, in this order:
+   only, subject `Your Data Care recovery request <ticket_id>: quote $<quote_usd>`, built
+   with `email_format.py` (`kind: quote`; pass its `html` and `text`), under about 250 words.
+   Put items 1–5 below in `recipient_name` and `paragraphs`, the price in `table`, and item 6
+   in `callout`, in this order:
    1. Greeting by name.
    2. What we understood, in 1–2 sentences of your own (no promise of a result).
    3. How we'd handle it: excel, we rebuild lost formulas from what survives (exports,
