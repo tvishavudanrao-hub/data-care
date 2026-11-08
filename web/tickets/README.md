@@ -54,21 +54,34 @@ The test suite has 11 tests. One runs the real SQL on Postgres (PGlite), which n
    Use whatever `query(text, params) -> rows` function `db.js` already builds.
 3. **Link it from the live board,** or from the landing page, as "Request a recovery".
 
-## How we get back to the customer (proposal)
+## Automatic quote email (the Recovery Manager writes it, a person approves it)
 
-1. **The Recovery Manager**, or a person, lists `GET /api/tickets?status=new`.
-2. **It opens a case:** `cc.py case-new --case C-00NN --client-email <email> --kind <kind>`.
-3. **It patches the ticket** with `{"case_id": "C-00NN"}`.
-4. **It drafts the reply** from the `codecare-recover` inbox. The reply covers:
-   - the quote
-   - install steps for the customer's `environment`
-   - how to share files safely
+```
+customer submits /tickets
+  -> app stores the ticket (status "new")
+  -> app starts a Recovery Manager session on Naive with the ticket as data   (status "in_progress")
+  -> Recovery Manager follows section T of its skill: writes a tailored email
+     (what we understood, how we'd handle it for their kind of loss, the four-label promise,
+      the quote, getting-started steps for their environment, what to send next)
+  -> agentmail.send_message from codecare-recover@agentmail.to  -- waits for a person to approve
+  -> client replies on that thread with files -> Anna's intake bridge -> section A opens the case
+```
 
-   It's sent only after a person approves (AgentMail send stays on "ask").
-5. **It patches the ticket** with `{"status": "quoted", "quote_usd": N}`.
-6. **When the customer replies with files,** Anna's intake bridge picks them up as usual and the pipeline runs.
+The Recovery Manager is the only agent that can send client email; the Mail Scout only reads mail.
+Section T is a **proposal for Anna's skill**: `web/tickets/recovery-manager-section-T.md`.
 
-**Not built yet:**
-- the reply email template
-- the install steps for each environment, which depend on what we ship
-- a rate limit per IP
+Switch it on in the app that serves the form (all three are needed; any missing = off):
+
+| Setting | Value |
+|---|---|
+| `TICKETS_AUTOSTART` | `1` |
+| `NAIVE_API_KEY` | a **narrow** Naive key (sessions:write only), as an app secret; never an admin key |
+| `RECOVERY_MANAGER_AGENT_ID` | `agt_hy7jf2c1n0asqa3wrfna3742yb` |
+| `TICKETS_MAX_SESSIONS_PER_DAY` | optional, default `20`: stops spam from spending credits |
+
+and `npm i @usenaive-sdk/managed-agents` in that app (`web/tickets/naive.js` uses it exactly as the Naive
+docs show). If Naive fails or the cap is hit, the customer still gets their reference and the ticket
+stays `new` for a person.
+
+Still to fill in: the "getting started" steps per environment (table in section T); until a row is
+filled in, the email leaves that part out rather than inventing steps.
