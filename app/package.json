@@ -8,7 +8,8 @@
     "dev": "node server.js",
     "dev:neon": "node --env-file=.env server.js",
     "schema": "node --env-file=.env scripts/apply-schema.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "tickets-table": "node --env-file=.env scripts/apply-tickets.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0"

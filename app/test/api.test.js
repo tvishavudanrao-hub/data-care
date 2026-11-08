@@ -136,3 +136,9 @@ test("case detail is public and masks the email", async () => {
   assert.equal(d.counts.fragments, 0);
   assert.equal((await call("GET", "/api/board/case/NOPE", undefined, null)).status, 404);
 });
+
+test("ticket form is served by the app", async () => {
+  const res = await call("GET", "/tickets", undefined, null);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /<form/i);
+});
