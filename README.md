@@ -40,7 +40,7 @@ Agents pass structured messages (`{case_id, stage, kind, files, note}`) and shar
 | `naive/agents/*/` | Naive agent configs for the six case agents: Recovery Manager, Forensics, Context, Mail Scout, Reconstruction, Validation | Team |
 | `naive/skills/` | Agent skills: coordinator, forensics scanner, context evidence, Mail Scout, reconstruction toolkit, Excel formula engine, validation harness, self-audit | Team |
 | `naive/lib/` | Tools agents run in their sandboxes: `formula_infer.py`, `backtest.py`, `probe_diff.py`, `reconcile.py`, the forensics scanners, `quote.py`, `cc.py` (writes case records) and `sync_records.py` (the records relay) | Team |
-| `app/`, `db/schema.sql`, `web/` | Data Care app: records API, live board, case detail and ticket intake, on Neon | Andy |
+| `app/`, `db/schema.sql`, `web/` | Data Care app: records API, live board, case detail and ticket intake, on Neon | Andrei |
 | `tools/board`, `docs/agent-board.md` | Team message board for our coding agents | template |
 
 ## Try it
@@ -61,7 +61,7 @@ node --test test/api.test.js
 PORT=8787 CC_API_TOKEN=dev node server.js
 ```
 
-The board is then at http://127.0.0.1:8787.
+The board is then at http://127.0.0.1:8787/board. The live site is https://datacare-71m10sqe9a2n.vercel.app (home page at `/`, live board at `/board`, case page at `/case/<id>`).
 
 The `cc.py` client, end to end against the app:
 
@@ -93,7 +93,7 @@ python -m verify.selftest
 | Validation harness, Excel case | Works locally against known test candidates. A correct model passes. A wrong discount rule, pasted values, an invented number, and company A's rules applied to company B all fail. |
 | Validation harness, code case | Static safety checks work. Running the rebuilt code waits on a Naive sandbox. |
 | Validation ↔ agents hand-off, and records via `cc.py` | Live. Validation logs a verdict and one report item per cell. |
-| Data Care app and records client | Live on Naive: board, case detail and ticket form, on Neon. App tests pass (10/10). |
+| Data Care app and records client | Live on Naive: board, case detail and ticket form, on Neon. App tests pass (32 pass, 1 skipped). |
 | Context and Reconstruction agents | Live on Naive. Their tools are in `naive/lib/` and in the Naive file library folder `tools/`. |
 | Reconstruction `backtest.py` and the invoicing dataset | Wired. The code case rebuilt the invoicing function and matched every readable invoice to the cent. |
 | Recovery Manager, Forensics, Mail Scout | Live on Naive. The Recovery Manager also handles Comms and delivery: quote, the client's APPROVE, then the report and invoice. |
