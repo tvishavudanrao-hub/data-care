@@ -1,1 +1,15 @@
 .board/
+
+# --- Validation (Tvisha): private answers never leave the Verify owner's machine ---
+# Answer keys, oracle code, held-out scenarios, expected outputs, reference
+# implementations, known-faulty fixtures and full verdicts all live here.
+verify/hidden/
+# Local verifier output (full verdicts copy, scratch recalcs).
+verify/out/
+# EICAR antivirus test marker is assembled locally by data/generate.py; it is
+# not committed because antivirus on teammates' machines would quarantine it.
+data/public/scanner_fixtures/*.com
+data/public/scanner_fixtures/*.txt
+__pycache__/
+*.pyc
+.venv/
