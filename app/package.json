@@ -1,0 +1,17 @@
+{
+  "name": "codecare-app",
+  "private": true,
+  "type": "module",
+  "description": "Code Care records API and live board (Neon).",
+  "main": "worker.js",
+  "scripts": {
+    "dev": "node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0"
+  }
+}
