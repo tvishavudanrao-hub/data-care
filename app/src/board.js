@@ -137,6 +137,9 @@ async function showDetail() {
       '<div><b>' + c.counts.fragments + ' / ' + c.counts.gaps + ' / ' + c.counts.rules + '</b><span>fragments / gaps / rules</span></div></div>' +
       byLabel.map((g) => '<h2>' + g.l + ' (' + g.items.length + ')</h2><ul>' + (g.items.length ? g.items.map((x) =>
         '<li><span class="tag l' + g.i + '">' + g.l.split(" ").pop() + '</span>' + esc(x.item) + ' <small>' + esc((x.cites || []).join(", ")) + '</small></li>').join("") : '<li class="empty">none</li>') + '</ul>').join("") +
+      (c.rules.length ? '<h2>Rules and ranked hypotheses (' + c.rules.length + ')</h2><ul>' + c.rules.map((x) =>
+        '<li><span class="tag l' + Math.max(0, LABELS.indexOf(x.status)) + '">' + esc(x.status.split(" ").pop()) + '</span><b>' + esc(x.rule_id) + '</b> ' + esc(x.description) +
+        ' <small>' + esc((x.evidence || []).slice(0, 6).join(", ")) + '</small></li>').join("") + '</ul>' : '') +
       '<h2>Steps</h2><ul>' + c.events.slice(0, 8).map((e) => '<li><small>' + time(e.created_at) + '</small> ' + esc(e.agent) + ': ' + esc(e.message || e.stage) + ' <small>' + money(e.cost_usd) + '</small></li>').join("") + '</ul>';
   } catch (e) { el.className = "panel open"; el.textContent = "can't load " + openId + ": " + e.message; }
 }
