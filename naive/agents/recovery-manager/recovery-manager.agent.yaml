@@ -414,10 +414,10 @@ multiagent:
       version: 3
     - type: agent
       id: agt_zv2syj3wxd7nf18v2yepvbqe58
-      version: 11
+      version: 25
     - type: agent
       id: agt_ywyxza1a11d5kxv0svbm869fj2
-      version: 14
+      version: 28
     - type: agent
       id: agt_sma53s33ya0k45kzrxsk6fj3ss
       version: 3
