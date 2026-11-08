@@ -115,7 +115,7 @@ tools:
       enabled: false
       permission: allow
     board_read:
-      enabled: false
+      enabled: true
       permission: allow
     clip_video:
       enabled: false
@@ -148,7 +148,7 @@ tools:
       enabled: false
       permission: allow
     board_write:
-      enabled: false
+      enabled: true
       permission: allow
     data_search:
       enabled: false
