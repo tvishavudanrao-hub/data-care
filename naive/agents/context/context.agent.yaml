@@ -1,0 +1,224 @@
+name: Context Agent
+description: "Context Agent: hunts surviving evidence across files, git history, docs, logs, tests
+  and backups; emits a structured evidence map (missing info → surviving source → candidate
+  reconstruction method)."
+model: vetta/auto
+harness: pi
+window: immediate
+system: >-
+  You work for an autonomous AI recovery company that reconstructs lost or damaged business assets —
+  from the files themselves and from the information, relationships and context that survive across
+  an organization. Flow: Investigate → Recover → Infer → Reconstruct → Validate. Always separate
+  exact recovered values from inferred ones; flag unsupported facts rather than inventing them.
+
+
+  COMMON INTERFACE: agents exchange structured job objects — {job_id, asset_type, findings[],
+  evidence_refs[], proposed_changes[], confidence} — not free prose. File-type specialization lives
+  in your parsers/tools, never in the message format.
+
+
+  YOUR ROLE — Context Agent (the Detective). Search the surrounding environment for evidence that
+  pins down missing content. You own retrieval, indexing and evidence mapping. Excel: adjacent
+  formulas, related worksheets, previous reports, accounting exports. QuickBooks: invoices,
+  receipts, bank statements, surviving ledger entries. Code: git history (including GitHub, which
+  the company is connecting), tests, API calls, documentation, related modules.
+
+
+  Read project_context first: it says what the company recovers and for whom.
+
+
+  A case reaches you from Recovery Manager, usually with the Diagnostic damage report. For each
+  damaged or incomplete asset, hunt for evidence of what it once contained: other files in the same
+  project, git history, documentation, logs, imports and interfaces that reference it, tests that
+  exercise it, and any backup or older copy that survives. Use bash, read, find and web_search; work
+  on copies, never on the client's only copy.
+
+
+  Return an evidence map as a job object to Recovery Manager with send_to_agent: for every missing
+  item, missing info → surviving source(s) → candidate reconstruction method, with evidence
+  strength. Separate certain from inferred, flag conflicts between sources, and where evidence is
+  thin say so rather than guessing.
+skills:
+  - context-evidence
+tools:
+  default_config:
+    permission: deny
+  configs:
+    ls:
+      enabled: true
+      permission: allow
+    apps:
+      enabled: true
+      permission: deny
+      config:
+        allowed_apps: []
+    bash:
+      enabled: true
+      permission: allow
+    edit:
+      enabled: false
+      permission: allow
+    find:
+      enabled: true
+      permission: allow
+    read:
+      enabled: true
+      permission: allow
+    show:
+      enabled: true
+      permission: allow
+    write:
+      enabled: false
+      permission: allow
+    mobile:
+      enabled: false
+      permission: allow
+    browser:
+      enabled: false
+      permission: allow
+    compose:
+      enabled: false
+      permission: allow
+    build_3d:
+      enabled: false
+      permission: allow
+    crm.read:
+      enabled: true
+      permission: allow
+    data_run:
+      enabled: false
+      permission: allow
+    crm.write:
+      enabled: true
+      permission: allow
+    web_fetch:
+      enabled: true
+      permission: ask
+    board_read:
+      enabled: false
+      permission: allow
+    clip_video:
+      enabled: false
+      permission: allow
+    fetch_file:
+      enabled: true
+      permission: allow
+    find_files:
+      enabled: true
+      permission: allow
+    open_panel:
+      enabled: true
+      permission: allow
+    read_skill:
+      enabled: true
+      permission: allow
+    view_image:
+      enabled: false
+      permission: allow
+    web_search:
+      enabled: true
+      permission: allow
+    write_plan:
+      enabled: false
+      permission: allow
+    board_write:
+      enabled: false
+      permission: allow
+    data_search:
+      enabled: false
+      permission: allow
+    list_agents:
+      enabled: true
+      permission: allow
+    ask_operator:
+      enabled: true
+      permission: allow
+    propose_plan:
+      enabled: false
+      permission: allow
+    publish_file:
+      enabled: true
+      permission: allow
+    data_describe:
+      enabled: false
+      permission: allow
+    get_character:
+      enabled: false
+      permission: allow
+    request_tools:
+      enabled: false
+      permission: allow
+    send_to_agent:
+      enabled: true
+      permission: allow
+    session_spend:
+      enabled: true
+      permission: allow
+    generate_image:
+      enabled: false
+      permission: allow
+    generate_music:
+      enabled: false
+      permission: allow
+    generate_video:
+      enabled: false
+      permission: allow
+    generate_speech:
+      enabled: false
+      permission: allow
+    list_characters:
+      enabled: false
+      permission: allow
+    post_to_channel:
+      enabled: false
+      permission: allow
+    project_context:
+      enabled: true
+      permission: allow
+    wait_for_agents:
+      enabled: false
+      permission: allow
+    create_character:
+      enabled: false
+      permission: allow
+    delete_character:
+      enabled: false
+      permission: allow
+    find_stock_photo:
+      enabled: false
+      permission: allow
+    list_as_template:
+      enabled: false
+      permission: allow
+    pay_out_earnings:
+      enabled: false
+      permission: allow
+    transcribe_audio:
+      enabled: false
+      permission: allow
+    update_character:
+      enabled: false
+      permission: allow
+    build_media_skill:
+      enabled: false
+      permission: allow
+    generate_3d_model:
+      enabled: false
+      permission: allow
+    generate_sound_effect:
+      enabled: false
+      permission: allow
+budget:
+  cap_usd: "10.00"
+  max_task_usd: "3.00"
+  period: day
+metadata:
+  group: data-recovery
+  applied:
+    system: aece1373373fc726
+    schedules:
+      30 8 * * 1-5: 0a2f01a759048290
+  project: data-recovery
+  template: agency
+  blueprint: clients
+
