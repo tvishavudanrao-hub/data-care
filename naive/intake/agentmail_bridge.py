@@ -64,7 +64,7 @@ SUPPLIERS = {
 SEARCH_INBOXES = ("codecare-recover@agentmail.to",)  # where the client's old mail lives
 MAX_SEARCH_HITS = 10
 DONE_LABEL = "dc-processed"
-SESSION_BUDGET_USD = "1"  # team rule while testing; ask Balthazar before raising
+SESSION_BUDGET_USD = "3"  # Andrei and Balthazar OKed $3 per run (2026-11-08)
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 

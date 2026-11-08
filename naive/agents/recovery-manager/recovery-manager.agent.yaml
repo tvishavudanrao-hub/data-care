@@ -384,7 +384,7 @@ tools:
       permission: deny
 budget:
   cap_usd: "10.00"
-  max_task_usd: "1.00"
+  max_task_usd: "3.00"
   period: day
 mcp_servers:
   - name: agentmail
