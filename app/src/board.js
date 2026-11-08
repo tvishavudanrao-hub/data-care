@@ -26,6 +26,7 @@ h1 .mark{flex:none;width:1.1em;height:1.1em}
 #status{margin-left:auto;font-size:14px;color:var(--body)}
 .home{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font-size:15px;font-weight:500;text-decoration:none}
 .home:focus-visible,#detail button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.summary{font:400 clamp(22px,2vw,32px)/1.25 var(--serif);color:var(--ink);padding:4px 2px} .summary b{font-weight:400;color:var(--accent)}
 .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 .kpi{container-type:inline-size;display:flex;flex-direction:column;justify-content:space-between;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
 .kpi span{order:-1;font-size:14px;font-weight:500;color:var(--body)}
@@ -103,12 +104,13 @@ ol li.empty{display:block}
   <div id="status">connecting…</div>
   <a class="home" href="/">Data Care home</a>
 </header>
+<section class="summary" id="summary"></section>
 <section class="kpis">
   <div class="kpi"><b id="k-cases">0</b><span>cases</span></div>
   <div class="kpi"><b id="k-cost">$0.00</b><span>total agent cost</span></div>
-  <div class="kpi"><b id="k-avg">$0.00</b><span>cost per case</span></div>
-  <div class="kpi human"><b id="k-human">0</b><span>humans stepped in</span></div>
-  <div class="kpi"><b id="k-checkups">0</b><span>checkups run</span></div>
+  <div class="kpi"><b id="k-avg">$0.00</b><span>cost per case (logged)</span></div>
+  <div class="kpi human"><b id="k-human">0</b><span id="k-human-sub">humans stepped in</span></div>
+  <div class="kpi"><b id="k-delivered">0</b><span>cases delivered</span></div>
   <div class="kpi" id="k-verdict-box"><b id="k-verdict">none</b><span id="k-verdict-sub">latest verdict</span></div>
 </section>
 <section class="lanes" id="lanes"></section>
@@ -126,10 +128,17 @@ const time = (iso) => new Date(iso).toLocaleTimeString([], {hour: "2-digit", min
 function render(d) {
   document.getElementById("k-cases").textContent = d.cases.length;
   document.getElementById("k-cost").textContent = money(d.total_cost);
-  const caseCost = d.cases.reduce((s, c) => s + c.cost, 0);
-  document.getElementById("k-avg").textContent = money(d.cases.length ? caseCost / d.cases.length : 0);
+  const costed = d.cases.filter((c) => c.cost > 0), caseCost = costed.reduce((s, c) => s + c.cost, 0);
+  document.getElementById("k-avg").textContent = money(costed.length ? caseCost / costed.length : 0);
   document.getElementById("k-human").textContent = d.humans_stepped_in;
-  document.getElementById("k-checkups").textContent = d.checkups_run;
+  document.getElementById("k-human-sub").textContent = "humans stepped in" + (d.events_total ? " · of " + d.events_total + " logged steps" : "");
+  const dl = d.cases.filter((c) => c.stage === "delivered");
+  document.getElementById("k-delivered").textContent = dl.length + " / " + d.cases.length;
+  const lb = d.labels || {}, built = (lb["recovered"] || 0) + (lb["reconstructed and tested"] || 0);
+  const dq = dl.reduce((s, c) => s + (c.quote_usd || 0), 0), dc = dl.reduce((s, c) => s + c.cost, 0);
+  document.getElementById("summary").innerHTML = dl.length
+    ? 'Damaged files in, rebuilt files out: <b>' + dl.length + ' cases delivered</b>, <b>' + built + ' items</b> recovered or rebuilt and tested, for <b>' + money(dc) + '</b> of agent cost against <b>' + money(dq) + '</b> quoted.'
+    : 'Waiting for the first delivered case.';
   const v = d.latest_verdict, box = document.getElementById("k-verdict-box");
   const outcome = v ? (v.outcome || (v.pass ? "pass" : "fail")) : null;
   box.className = "kpi" + (outcome ? ({pass: " pass", fail: " fail"}[outcome] || " human") : "");
@@ -138,10 +147,11 @@ function render(d) {
 
   document.getElementById("lanes").innerHTML = d.stages.map((stage) => {
     const cs = d.cases.filter((c) => c.stage === stage);
+    if (!cs.length) return "";
     const cards = cs.map((c) =>
       '<div class="card ' + esc(c.stage) + '" data-id="' + esc(c.case_id) + '" onclick="openCase(this.dataset.id)"><b>' + esc(c.case_id) + '</b>' +
-      '<div>' + esc(c.kind) + ' · ' + money(c.cost) + (c.retry_count ? ' · retry ' + c.retry_count : '') + '</div>' +
-      (c.quote_usd != null ? '<div>quote ' + money(c.quote_usd) + ' · cost ' + money(c.cost) + (c.quote_usd > 0 ? ' · ' + Math.round(100 * (1 - c.cost / c.quote_usd)) + '% margin' : '') + '</div>' : '') + '</div>').join("");
+      '<div>' + esc(c.kind) + (c.cost > 0 ? ' · ' + money(c.cost) : '') + (c.retry_count ? ' · retry ' + c.retry_count : '') + '</div>' +
+      (c.quote_usd != null ? '<div>quote ' + money(c.quote_usd) + ' · ' + (c.cost > 0 ? 'cost ' + money(c.cost) + (c.quote_usd > 0 ? ' · ' + Math.round(100 * (1 - c.cost / c.quote_usd)) + '% margin' : '') : 'cost not logged') + '</div>' : '') + '</div>').join("");
     return '<div class="lane' + (cs.length ? ' hot' : '') + '"><h2><span>' + esc(stage.replace("_", " ")) +
       '</span><span>' + cs.length + '</span></h2>' + (cards || '<div class="empty">none</div>') + '</div>';
   }).join("");
