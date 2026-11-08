@@ -45,13 +45,19 @@ A request arrives from Recovery Manager:
  "retry_count": 0, "dataset": "excel_a", "note": "..."}
 ```
 
-1. fetch_file each listed file into `./incoming/<folder>/<file name>`, then write the request to
-   `./incoming/request.json`.
+1. fetch_file each listed file into `./incoming/<folder>/<file name>`. Also find_files
+   `report_draft.md` in the folder `<case_id>-report` (Reconstruction's draft of the client report)
+   and, if it exists, fetch it into `./incoming/<case_id>-report/report_draft.md`. Then write the
+   request to `./incoming/request.json`.
 2. Run (inside this Naive sandbox only):
    `VERIFY_IN_NAIVE_SANDBOX=1 python3 -m verify.handoff --request incoming/request.json --files-root incoming --out-dir validation_out --cc`
 3. The reply has `publish_from`: for each entry, publish_file the local path (the value) into the
    folder `<case_id>-report` under the file name in the key (`validation_feedback.json`,
-   `verdicts.jsonl`, `report_items.jsonl`, `events.jsonl`). The team's relay (sync_records.py) sends
+   `verdicts.jsonl`, `report_items.jsonl`, `events.jsonl`, and `report.md` when the case is ready
+   to deliver). `report.md` is the client report the Recovery Manager sends: the verifier writes it
+   from Reconstruction's draft plus an independent-validation section (outcome, label counts,
+   unresolved items). It is only produced on pass, untested or escalation, never on a fail that goes
+   back for a retry. Publish it unchanged. The team's relay (sync_records.py) sends
    these records to the Data Care app; nothing in them holds hidden values. Do not include
    `publish_from` in the message to Recovery Manager.
 4. Send the command's stdout (the reply object) to Recovery Manager with send_to_agent, unchanged.
