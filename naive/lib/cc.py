@@ -33,6 +33,7 @@ KINDS = ("excel", "code", "checkup", "other")
 STAGES = ("intake", "forensics", "context", "reconstruction", "waiting_client",
           "validation", "approval", "delivered", "unresolved")
 FRAGMENT_TYPES = ("code", "record", "clue")
+OUTCOMES = ("pass", "fail", "error", "untested")
 
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 ATTEMPTS = 4
@@ -143,9 +144,11 @@ def build_parser():
 
     s = sub.add_parser("verdict", help="log a Validation verdict")
     s.add_argument("--case", required=True)
-    g = s.add_mutually_exclusive_group(required=True)
+    g = s.add_mutually_exclusive_group()
     g.add_argument("--pass", dest="passed", action="store_true")
     g.add_argument("--fail", dest="failed", action="store_true")
+    s.add_argument("--outcome", choices=OUTCOMES,
+                   help="pass, fail, error or untested; error and untested are stored with pass=false")
     s.add_argument("--results", required=True, type=_json_arg,
                    help='JSON list [{"example_id","expected","actual"}], or @file.json')
     s.add_argument("--retry-count", required=True, type=int)
@@ -196,8 +199,13 @@ def run(argv=None):
         return post("gaps", {"gap_id": a.id, "case_id": a.case, "what": a.what, "why": a.why,
                              "where_to_look": a.where_to_look, "status": a.status})
     if a.cmd == "verdict":
-        return post("verdicts", {"case_id": a.case, "pass": bool(a.passed), "results": a.results,
-                                 "retry_count": a.retry_count})
+        if not (a.passed or a.failed or a.outcome):
+            raise CCError("verdict needs --pass, --fail or --outcome")
+        outcome = a.outcome or ("pass" if a.passed else "fail")
+        if (a.passed and outcome != "pass") or (a.failed and outcome == "pass"):
+            raise CCError("--pass/--fail contradicts --outcome %s" % outcome)
+        return post("verdicts", {"case_id": a.case, "pass": outcome == "pass", "outcome": outcome,
+                                 "results": a.results, "retry_count": a.retry_count})
     if a.cmd == "report-item":
         return post("report_items", {"case_id": a.case, "item": a.item, "label": a.label, "cites": a.cites})
     if a.cmd == "event":

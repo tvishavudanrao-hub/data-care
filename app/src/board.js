@@ -75,8 +75,9 @@ function render(d) {
   document.getElementById("k-human").textContent = d.humans_stepped_in;
   document.getElementById("k-checkups").textContent = d.checkups_run;
   const v = d.latest_verdict, box = document.getElementById("k-verdict-box");
-  box.className = "kpi" + (v ? (v.pass ? " pass" : " fail") : "");
-  document.getElementById("k-verdict").textContent = v ? (v.pass ? "PASS" : "FAIL") : "none";
+  const outcome = v ? (v.outcome || (v.pass ? "pass" : "fail")) : null;
+  box.className = "kpi" + (outcome ? ({pass: " pass", fail: " fail"}[outcome] || " human") : "");
+  document.getElementById("k-verdict").textContent = outcome ? outcome.toUpperCase() : "none";
   document.getElementById("k-verdict-sub").textContent = v ? "latest verdict · " + v.case_id + " · retry " + v.retry_count : "latest verdict";
 
   document.getElementById("lanes").innerHTML = d.stages.map((stage) => {

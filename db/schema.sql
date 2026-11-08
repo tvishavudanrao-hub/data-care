@@ -43,6 +43,8 @@ create table verdicts (
   pass boolean not null,
   results jsonb not null,  -- [{example_id, expected, actual}]
   retry_count int not null,
+  outcome text check (outcome in ('pass','fail','error','untested')),  -- added for Validation: error/untested are not plain fails
+
   created_at timestamptz not null default now()
 );
 create table report_items (

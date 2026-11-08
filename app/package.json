@@ -6,7 +6,9 @@
   "main": "worker.js",
   "scripts": {
     "dev": "node server.js",
-    "test": "node --test test/"
+    "dev:neon": "node --env-file=.env server.js",
+    "schema": "node --env-file=.env scripts/apply-schema.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0"
