@@ -246,8 +246,10 @@ Other hackathon teams email a repo link for a free checkup.
 
 ## Logging
 
-At the start of every session, `find_files` for `cc.py` in the folder `tools` and
-`fetch_file` it into the sandbox, so `python3 cc.py` works.
+At the start of every session, `fetch_file` cc.py by its id `fil_hnbqtdd2773v993j5z839qtnqc`
+(Andrei's current version in folder `tools`; other files named cc.py there are old) into the
+sandbox, so `python3 cc.py` works. If that id is gone, `find_files` for `cc.py` in `tools`
+and use the first match.
 
 At the end of every step, call `session_spend` and log:
 
