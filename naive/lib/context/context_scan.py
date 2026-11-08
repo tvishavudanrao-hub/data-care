@@ -2507,10 +2507,10 @@ class Scan(object):
                     "known_missing": self.known_missing}
         for name, obj in (("fragments.json", self.fragments), ("gaps.json", clean), ("evidence.json", evidence)):
             with open(os.path.join(self.out_dir, name), "w", encoding="utf-8") as fh:
-                json.dump(obj, fh, indent=2, ensure_ascii=False)
+                json.dump(redact(obj), fh, indent=2, ensure_ascii=False)
                 fh.write("\n")
         with open(os.path.join(self.out_dir, "inventory.md"), "w", encoding="utf-8") as fh:
-            fh.write(self.inventory_md(clean))
+            fh.write(redact(self.inventory_md(clean)))
         return {"files": len(self.inventory), "fragments": len(self.fragments), "values": len(self.values),
                 "reported": len(self.reported), "rules": len(self.rules), "gaps": len(clean),
                 "known_missing": len(self.known_missing)}
@@ -2554,6 +2554,34 @@ class Scan(object):
                                                        k["source"]))
         L.append("")
         return "\n".join(L)
+
+
+# -- secrets never leave the scanner ---------------------------------------------------------
+# Client files can hold passwords and keys. Any text this scanner writes (evidence, fragments, gaps,
+# inventory) goes through redact() first, so a secret value never reaches evidence.json or the records.
+SECRET_PATTERNS = [
+    (re.compile(r"(?i)\b(password|passwd|pwd|secret|client_secret|token|api[_-]?key|access[_-]?key)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"),
+     r"\1\2[secret removed]"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S), "[private key removed]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[access key removed]"),
+    (re.compile(r"\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{8,}"), "[api key removed]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"), "[token removed]"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "[token removed]"),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*"), "Bearer [token removed]"),
+]
+
+
+def redact(obj):
+    """Return obj with every secret-looking value in its strings replaced. Works on str, list, dict."""
+    if isinstance(obj, str):
+        for rx, rep in SECRET_PATTERNS:
+            obj = rx.sub(rep, obj)
+        return obj
+    if isinstance(obj, list):
+        return [redact(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: redact(v) for k, v in obj.items()}
+    return obj
 
 
 def main(argv=None):

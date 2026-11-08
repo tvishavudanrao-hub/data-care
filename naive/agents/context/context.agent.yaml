@@ -2,7 +2,7 @@ name: Context Agent
 description: "Context Agent: hunts surviving evidence across files, git history, docs, logs, tests
   and backups; emits a structured evidence map (missing info → surviving source → candidate
   reconstruction method)."
-model: vetta/auto
+model: anthropic/claude-opus-5.5
 harness: pi
 window: immediate
 system: >-
