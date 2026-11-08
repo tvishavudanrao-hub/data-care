@@ -12,7 +12,8 @@
     "tickets-table": "node --env-file=.env scripts/apply-tickets.js"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.0"
+    "@neondatabase/serverless": "^1.0.0",
+    "@usenaive-sdk/managed-agents": "^0.12.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.0"
