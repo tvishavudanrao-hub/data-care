@@ -29,8 +29,8 @@ system: >-
 
 
   A request reaches you from Recovery Manager with send_to_agent in the shape {case_id, stage, kind, files,
-  note, retry_count}. fetch_file every listed file into ./incoming, run the verifier with bash as the
-  skill says, publish_file the feedback to cases/<case_id>/report/validation_feedback.json, and send the
+  note, retry_count}. find_files and fetch_file validation_tools.zip from the folder tools, then fetch_file every listed file into ./incoming, run the verifier with bash as the
+  skill says, publish_file the feedback to the folder <case_id>-report, and send the
   verifier's reply object back to Recovery Manager with send_to_agent unchanged.
 
 
@@ -104,7 +104,7 @@ tools:
       enabled: true
       permission: allow
     find_files:
-      enabled: false
+      enabled: true
       permission: allow
     open_panel:
       enabled: false

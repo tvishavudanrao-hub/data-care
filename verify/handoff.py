@@ -4,7 +4,7 @@ Speaks the message format in docs/codecare-contracts.md:
 
   request (from Recovery Manager, via send_to_agent):
     {"case_id": "C-0001", "stage": "validation", "kind": "excel" | "code",
-     "files": ["cases/C-0001/rebuilt/model.xlsx", "cases/C-0001/rebuilt/rules.json", ...],
+     "files": ["C-0001-rebuilt/model.xlsx", "C-0001-rebuilt/manifest.json", ...],
      "note": "...",
      # optional extras this adapter understands:
      "dataset": "excel_a", "retry_count": 1, "artifact_version": "v2"}
@@ -14,12 +14,15 @@ Speaks the message format in docs/codecare-contracts.md:
   reply (to Recovery Manager):
     {"case_id": "C-0001", "stage": "validation", "status": "done" | "failed",
      "outcome": "pass" | "fail" | "error" | "untested", "next_action": "...",
-     "outputs": ["cases/C-0001/report/validation_feedback.json"], "question": null,
+     "outputs": ["C-0001-report/validation_feedback.json"], "question": null,
      "mismatches": [limited: item, label, failed_check_tags, failed_checks], "retry_count": n}
 
-The Validation agent fetches the listed files from the Naive file library into
---files-root (fetch_file), runs this, then publishes <out-dir>/validation_feedback.json
-to cases/<case_id>/report/ (publish_file) and sends the reply. No expected
+Naive file library folders cannot contain "/", so the team uses one flat folder
+per case and stage: C-0001-incoming, C-0001-working, C-0001-evidence,
+C-0001-rebuilt, C-0001-report. A file in a hand-off is "<folder>/<file name>".
+The Validation agent fetches the listed files into --files-root/<folder>/ (fetch_file),
+runs this, then publishes <out-dir>/validation_feedback.json to the folder
+<case_id>-report (publish_file) and sends the reply. No expected
 values ever appear in the reply, the feedback file or the shared records.
 
     python -m verify.handoff --request request.json --files-root ./incoming --out-dir ./validation_out [--cc]
@@ -39,6 +42,11 @@ from verify import retry
 
 CELL = re.compile(r"(Model|Assumptions)!\$?([A-J])\$?(\d+)")
 FEEDBACK_NAME = "validation_feedback.json"
+
+
+def report_folder(case_id: str) -> str:
+    """Flat Naive file-library folder for this case's report (no "/" allowed in folder names)."""
+    return f"{case_id}-report"
 
 
 class HandoffError(Exception):
@@ -93,11 +101,17 @@ def manifest_from_rebuild(files: list[Path]) -> dict:
     """Build the verifier manifest from Reconstruction's rules.json / report_items.json."""
     man: dict = {"rules": {}, "unresolved": [], "needs_signoff": []}
     by_name = {p.name: p for p in files}
+    if "manifest.json" in by_name:
+        # formula_infer.py writes the verifier's own manifest format; use it as the base
+        given = json.loads(by_name["manifest.json"].read_text())
+        man["rules"].update({str(k): v for k, v in given.get("rules", {}).items()})
+        man["unresolved"] += list(given.get("unresolved", []))
+        man["needs_signoff"] += [str(r) for r in given.get("needs_signoff", [])]
     if "rules.json" in by_name:
         for r in json.loads(by_name["rules.json"].read_text()):
             for row in _rows(r.get("cells", [])):
-                man["rules"][str(row)] = {"rule_id": r.get("rule_id", ""),
-                                          "evidence": [str(e) for e in r.get("evidence", [])]}
+                man["rules"].setdefault(str(row), {"rule_id": r.get("rule_id", ""),
+                                          "evidence": [str(e) for e in r.get("evidence", [])]})
                 # an unconfirmed client choice stays untested until approved
                 if r.get("status") == "reconstructed but untested" and r.get("alternatives"):
                     man["needs_signoff"].append(str(row))
@@ -107,6 +121,7 @@ def manifest_from_rebuild(files: list[Path]) -> dict:
                 for sheet, col, row in CELL.findall(it.get("item", "")):
                     man["unresolved"].append(f"{sheet}!{col}{row}")
     man["needs_signoff"] = sorted(set(man["needs_signoff"]))
+    man["unresolved"] = sorted(set(man["unresolved"]))
     return man
 
 
@@ -172,7 +187,7 @@ def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dic
         "case_id": req["case_id"], "stage": "validation",
         "status": "done" if v.outcome == "pass" else "failed",
         "outcome": v.outcome, "next_action": v.next_action,
-        "outputs": [f"cases/{req['case_id']}/report/{FEEDBACK_NAME}"],
+        "outputs": [f"{report_folder(req['case_id'])}/{FEEDBACK_NAME}"],
         "question": None,
         "mismatches": [{k: it[k] for k in ("item_id", "label", "status", "failed_check_tags", "failed_checks")}
                        for it in fb["items"] if it["status"] not in ("pass", "unresolved")],
