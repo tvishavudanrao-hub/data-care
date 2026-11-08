@@ -1,0 +1,44 @@
+From: Dana Okafor <dana.okafor@alderbank.example.com>
+To: Finance team <finance@alderbank.example.com>
+Date: Tue, 20 Oct 2026 16:05:00 +0000
+Message-ID: <model-rules-alderbank@alderbank.example.com>
+Subject: Re: rebuilding the quarterly model - how the numbers work
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Hi all,
+
+Since the model file got damaged, here is how it is supposed to work so you
+can rebuild it. Please keep the layout as it was.
+
+1. Gross revenue is units sold times list price for the quarter.
+
+2. Volume discount is decided per quarter on that quarter's total units.
+   Once a quarter reaches a tier, the tier rate applies to the WHOLE quarter's
+   gross revenue, not just the units above the line:
+     - 1,000 units or more: 5%
+     - 2,500 units or more: 10%
+     - below 1,000 units: no discount
+   The thresholds and rates live on the Assumptions tab, so reference those
+   cells rather than typing the numbers into formulas.
+
+3. Round the discount to the cent each quarter. Net revenue is gross minus
+   discount.
+
+4. COGS is 38% of NET revenue (after discount), also
+   rounded to the cent each quarter. The % is on the Assumptions tab.
+
+5. Gross margin % is gross profit over net revenue. Growth is net revenue vs
+   the prior quarter. If the denominator is zero, show 0%, not an error.
+
+6. Totals in column J are sums, except the two rates, which are recalculated
+   from the totals.
+
+One gap: I do not have Q1 2026 operating expenses. That figure only lived in
+the model and the backup is gone. Please leave it blank and flag it rather
+than estimating.
+
+Thanks,
+Dana Okafor
+CFO, Alderbank Outfitters

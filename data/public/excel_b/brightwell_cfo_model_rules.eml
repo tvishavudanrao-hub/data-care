@@ -1,0 +1,37 @@
+From: Marek Lindqvist <marek.lindqvist@brightwell.example.com>
+To: Finance team <finance@brightwell.example.com>
+Date: Tue, 20 Oct 2026 16:05:00 +0000
+Message-ID: <model-rules-brightwell@brightwell.example.com>
+Subject: Re: rebuilding the quarterly model - how the numbers work
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Hi team,
+
+For the rebuild of the quarterly model:
+
+1. Gross revenue = units x list price for the quarter.
+
+2. Our volume discount is MARGINAL, like tax brackets. Only the units above
+   each threshold earn that tier's rate:
+     - units above 800 (up to 2,000) get 4% off list price
+     - units above 2,000 get 9% off list price
+     - the first 800 units each quarter get nothing
+   Thresholds and rates are on the Assumptions tab; please reference them.
+   Round the discount amount to the cent. Row 6 shows the effective rate
+   (discount over gross revenue).
+
+3. COGS is 42% of GROSS (list) revenue, before any
+   discount, because the supplier contract is priced on list. Round to the
+   cent each quarter.
+
+4. Gross margin % = gross profit / net revenue. Growth = net revenue vs the
+   prior quarter. Zero denominator: show 0%.
+
+5. Column J totals are sums; the two rate rows are recalculated from totals.
+
+Q4 2026 operating expenses are not closed yet and I cannot give you a number.
+Leave them empty.
+
+Marek
