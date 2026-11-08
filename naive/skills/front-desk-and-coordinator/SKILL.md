@@ -137,13 +137,14 @@ Look up `thread_id` in the index.
    > Every item in the final report is labeled recovered, reconstructed and tested,
    > reconstructed but untested, or unresolved; we never guess a value.
 
-   Quote (demo pricing, Nash's table; a person approves every quote before it goes out):
+   Quote (demo pricing: the floor price per kind from Nash's pay scale; these are placeholder
+   prices, not our cost; the quote is not-to-exceed; a person approves every quote before it goes out):
 
    | Case | Kind | Quote |
    | --- | --- | --- |
    | Excel model recovery | `excel` | $450 fixed |
    | Lost code / module recovery | `code` | $450 fixed |
-   | Food-outbreak trace-back (the request asks to find the source of an outbreak, recall or contamination from invoices, lot codes, shipping or delivery records) | `other` | $2,500 per investigation, plus $400 per extra batch of 100 supplier documents |
+   | Food-outbreak trace-back (the request asks to find the source of an outbreak, recall or contamination from invoices, lot codes, shipping or delivery records) | `other` | $2,500 per investigation (floor $2,000 x 1.25 for the 24-hour records window) |
    | Clinic checkup | `checkup` | free |
    | Anything else | `other` | `ask_operator` for a price; never invent one |
 
