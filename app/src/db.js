@@ -127,7 +127,7 @@ export function makeDb(query) {
   }
 
   async function board() {
-    const [cases, humans, checkups, verdict, events, labels, total] = await Promise.all([
+    const [cases, humans, checkups, verdict, events, labels, total, evTotal] = await Promise.all([
       query(`select c.case_id, c.client_email, c.kind, c.stage, c.retry_count, c.quote_usd, c.updated_at,
                     coalesce(sum(e.cost_usd), 0) as cost
                from cases c left join events e on e.case_id = c.case_id
@@ -140,10 +140,12 @@ export function makeDb(query) {
       query(`select label, count(*)::int as n from
                 (select distinct on (case_id, item) label from report_items order by case_id, item, item_id desc) r group by label`),
       query(`select coalesce(sum(cost_usd), 0) as total_cost from events`),
+      query(`select count(*)::int as n from events`),
     ]);
     return {
       cases: cases.map((r) => decode({ ...r, client_email: maskEmail(r.client_email) })),
       humans_stepped_in: humans[0].n,
+      events_total: evTotal[0].n,
       checkups_run: checkups[0].n,
       latest_verdict: verdict[0] || null,
       recent_events: events.map(decode),
