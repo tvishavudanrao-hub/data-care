@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "currency": "USD",
   "note": "Placeholder rates from the hackathon runs, not market prices. After the rehearsal, replace the unit costs with real events.cost_usd per case (Data Care board). Nash decides any change.",
-  "formula": "quote = ceil_to_step( max(floor, k*V + hourly*H + request_fee*R) * risk * urgency ); V = docs*doc + scanned_pages*scanned_page + retries*retry + lookups*lookup",
+  "formula": "quote = ceil_to_step( max(floor, k*V + hourly*H + request_fee*R) * risk * urgency ); V = docs*doc + scanned_pages*scanned_page + retries*retry + lookups*lookup. A kind may override k and hourly (rates_override), e.g. small-business tiers.",
   "rates": {
     "k": 4,
     "doc": 0.50,
@@ -18,10 +18,21 @@
   "kinds": {
     "excel":      {"label": "Excel formula recovery",        "floor": 450,   "risk": 1.0, "defaults": {"docs": 4,  "scanned_pages": 0,  "requests": 0, "retries": 1, "lookups": 0,  "review_hours": 0.5}},
     "code":       {"label": "Lost code module recovery",     "floor": 450,   "risk": 1.0, "defaults": {"docs": 8,  "scanned_pages": 0,  "requests": 0, "retries": 1, "lookups": 0,  "review_hours": 0.5}},
-    "trace":      {"label": "Food-outbreak trace-back",      "floor": 2000,  "risk": 1.0, "defaults": {"docs": 120, "scanned_pages": 40, "requests": 6, "retries": 2, "lookups": 20, "review_hours": 1.5}, "default_urgency": "rush"},
+    "trace":      {"label": "Food-outbreak trace-back (full investigation)", "floor": 2000, "risk": 1.0, "defaults": {"docs": 120, "scanned_pages": 40, "requests": 6, "retries": 2, "lookups": 20, "review_hours": 1.5}},
+    "trace_small":  {"label": "Food-outbreak trace-back (full investigation, small business)", "floor": 1200, "risk": 1.0, "max_docs": 150,
+                     "rates_override": {"k": 3, "hourly": 100},
+                     "defaults": {"docs": 100, "scanned_pages": 10, "requests": 4, "retries": 2, "lookups": 10, "review_hours": 1}},
+    "trace_triage": {"label": "Food-outbreak trace-back (triage: ranked suspects and the records to request)", "floor": 750, "risk": 1.0, "max_docs": 40, "max_scanned_pages": 20,
+                     "rates_override": {"k": 3, "hourly": 100},
+                     "defaults": {"docs": 30, "scanned_pages": 10, "requests": 0, "retries": 1, "lookups": 0, "review_hours": 0.25},
+                     "includes": "a ranked list of the likely sources with the evidence for each, and the exact records to request and from whom, with the request emails drafted. We do not send requests to suppliers at this tier."},
     "patient":    {"label": "Patient-record reconstruction", "floor": 5000,  "risk": 1.5, "defaults": {"docs": 400, "scanned_pages": 50, "requests": 10, "retries": 2, "lookups": 0, "review_hours": 8}},
     "wells":      {"label": "Undocumented orphan wells (county pilot)", "floor": 15000, "risk": 1.0, "defaults": {"docs": 400, "scanned_pages": 300, "requests": 40, "retries": 5, "lookups": 0, "review_hours": 15}},
     "checkup":    {"label": "Clinic checkup",                "floor": 0,     "risk": 1.0, "free": true, "defaults": {"docs": 0, "scanned_pages": 0, "requests": 0, "retries": 0, "lookups": 0, "review_hours": 0}}
   },
+  "offers": {
+    "trace": {"small": ["trace_triage", "trace_small"], "standard": ["trace_triage", "trace"]}
+  },
+  "triage_credit_days": 7,
   "aliases": {"other": "trace", "trace-back": "trace", "traceback": "trace", "food": "trace", "orphan-wells": "wells", "patients": "patient"}
 }
