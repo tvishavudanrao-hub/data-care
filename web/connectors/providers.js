@@ -29,9 +29,17 @@ export function emailFromIdToken(idToken) {
   } catch { return ""; }
 }
 
+// On failure, add the provider's short error code (e.g. Google's "invalid_client") so a setup
+// mistake is visible. Only a code of letters, digits, "_", "-" or "." is shown, never free text.
 async function ok(r, what) {
-  if (!r.ok) throw new Error(`${what} failed (${r.status})`);
-  return r;
+  if (r.ok) return r;
+  let code = "";
+  try {
+    const j = await r.clone().json();
+    const c = typeof j.error === "string" ? j.error : j.error?.code ?? j.error?.[".tag"] ?? "";
+    if (/^[A-Za-z0-9_.-]{1,60}$/.test(c)) code = ": " + c;
+  } catch {}
+  throw new Error(`${what} failed (${r.status}${code})`);
 }
 const dedupe = (files) => [...new Map(files.map((f) => [f.id, f])).values()];
 
