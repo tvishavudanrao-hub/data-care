@@ -20,9 +20,9 @@ Rules for the stage: claim only what runs. Every number below comes from a real 
 
 Before going on stage:
 - [ ] Demo data reset to the starting state (new case numbers; Alderbank files in the datacare-recover@agentmail.to inbox, not already processed)
-- [ ] Credits checked (the Naive dashboard); each agent's per-task cap is $1
+- [ ] Credits checked (the Naive dashboard); the Recovery Manager's per-task cap is $3 and its daily cap $30; Validation is $1 per task and $5 per month, so check it will cover a full run
 - [ ] AgentMail bridge running on Anna's Mac; relay running on Andrei's Mac; Data Care board open and live
-- [ ] A person is ready to approve the delivery email in the Naive app (also each Mail Scout mail read)
+- [ ] No approval is needed on stage: every email sends on its own and mailbox search runs in the bridge. The presenter only plays the client and replies APPROVE to the quote (or sends the test email from the client's address)
 - [ ] Logged in, tabs open in order, notifications off
 - [ ] Backup video downloaded locally (plus Tvisha's clips: Validation proof, and ticket → connect storage → "what we read")
 - [ ] `docs/demo/validation-proof.html` open in a tab (numbers come from real verifier runs; no hidden answers on it)
