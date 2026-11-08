@@ -93,9 +93,36 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 `fetch_file` into the sandbox (all in folder `tools`):
 - `cc.py` by id `fil_hnbqtdd2773v993j5z839qtnqc` (Andrei's records client). If that id is
   gone, `find_files` for `cc.py` in `tools` and use the first match.
+- `email_format.py` by id `fil_015c5cqe16h9vyc9q1bbqgbkez` (the email template; see below).
 - `quote.py` and `pricing.json` (Nash's quoting tool; `find_files` in `tools`, first match).
   Pass `--pricing pricing.json` to `quote` and `final`. Prices live in pricing.json,
   never in this skill.
+
+## How every email looks (Data Care house style)
+
+Every email you send, receipts, quotes, questions, supplier requests, updates and
+deliveries alike, is built with `email_format.py` (folder `tools`, id
+`fil_015c5cqe16h9vyc9q1bbqgbkez`; `fetch_file` it at the start of the session, like cc.py). Write
+the content as JSON and run `python3 email_format.py --file content.json`; pass BOTH the
+returned `html` and `text` to `agentmail.send_message` / `reply_to_message`. Never send
+plain text alone.
+
+- `kind`: receipt, quote, question, update, delivery or closing. `case_id`: the case.
+- `recipient_name`: the client's name only if they signed one (e.g. "Marek Lindqvist").
+  Never their email or domain; leave it empty and the greeting becomes "Hello,".
+- `title`: one short line, e.g. "Your quote for case C-0005", "One question about case
+  C-0005", "Your rebuilt model is ready".
+- `paragraphs`: 1–4 short paragraphs in plain, warm business English. quote.py's
+  `email_body` goes in unchanged, split on blank lines. No jargon (no "Forensics",
+  "Context agent", "sandbox", "pipeline"); say "our team".
+- `table`: the key facts as label/value pairs, e.g. Service, Files received, Price, Report
+  counts, Invoice.
+- `bullets`: only for lists (e.g. the four report counts, or the files attached).
+- `callout`: the one thing the client should do next (e.g. "Reply APPROVE to start.
+  Nothing begins until you do."). Leave it empty when nothing is needed.
+- `closing`: "Kind regards,". The template adds the signature, the case line and the
+  four-labels note itself.
+- Never promise a turnaround time or a result.
 
 ## Case index (the case state you can read back)
 
