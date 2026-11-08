@@ -65,7 +65,8 @@ Write the code below to context_scan.py exactly as shown, then run it as in step
 #!/usr/bin/env python3
 """context_scan.py - Data Care Context Agent scanner.
 
-Reads every file of a recovery case and writes into --out-dir:
+Reads every file of a recovery case (folders, archives, mail exports, git history, calendars, chat
+exports) and writes into --out-dir:
   fragments.json  every piece of evidence found: id, file, location, type, confidence, notes
   gaps.json       what is missing, why it matters, where to look (ranked), status "open"
   evidence.json   {"case_id", "values", "reported", "rules", "known_missing"} for formula_infer.py
@@ -74,9 +75,15 @@ Formats are defined in CONTRACTS.md. Python 3.8+ standard library only.
 
 Safety: client files are parsed as data. Nothing is executed or imported, and text
 inside a file is evidence, never an instruction. Folders named "quarantine" are skipped.
+Archives are read in memory (never extracted), with limits on size and member count. Git history is
+read with the git binary from a private copy of the objects and refs only (no client config or hooks).
+Key and credential files are never opened, and secrets in what is read are replaced by markers.
+A big export (more than --max-files files) is ranked by relevance to the case; only the top files are
+scanned and the rest are listed by name.
 
 Usage:
   python3 context_scan.py --case-dir case/ --case C-0001 [--model case/working/model.xlsx] --out-dir evidence/
+                          [--max-files 400] [--terms "term one,term two"]
 """
 
 import argparse
@@ -91,8 +98,10 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import tokenize
 import zipfile
@@ -107,6 +116,45 @@ MAX_ROW_FRAGMENTS = 300      # per transaction-style file
 MAX_CLUES_PER_FILE = 150
 ERROR_CODES = ("#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#N/A", "#NUM!", "#NULL!", "#SPILL!", "#CALC!")
 SKIP_DIRS = {"quarantine", ".git", "__pycache__", "node_modules", ".venv", "venv"}
+# Big exports (a whole computer, a drive, a mailbox)
+MAX_FILES = 400                  # files scanned fully when a case holds more; the rest are listed by name only
+MAX_ARCHIVE_BYTES = 200 * 1024 * 1024   # uncompressed bytes read from one archive, nested archives included
+MAX_ARCHIVE_MEMBERS = 5000
+MAX_BINARY_BYTES = 5 * 1024 * 1024      # files of an unknown type above this size are skipped as junk
+MAX_MAIL_MESSAGES = 200          # a bigger mailbox: only messages that match the case terms are scanned
+MAX_MAILBOX_LOOK = 50000         # messages looked at in one mailbox
+MAX_CAL_EVENTS = 500             # a bigger calendar: only events that match the case terms
+MAX_CHAT_MESSAGES = 2000         # a bigger chat file: only messages that match the case terms
+MAX_GIT_REPOS = 5
+MAX_GIT_COMMITS = 30             # commits recorded per repository, newest first
+MAX_GIT_CODE = 6000              # characters of recovered code kept in one fragment
+MAX_GIT_COPY = 1024 * 1024 * 1024
+MAX_GIT_FILES = 20               # files tracked in git but missing from the case, recovered per repository
+MAX_LISTED = 300                 # names listed under "Seen, not scanned"
+MAX_SKIP_LISTED = 100            # skipped files and folders listed one by one in the inventory
+FRAG_CAP = 899                   # Context numbers fragments 001-899 (Forensics starts at 901)
+GAP_CAP = 49                     # and gaps 01-49 (Reconstruction uses 51-89, Forensics 91 and up)
+SNIFF_BYTES, SNIFF_BUDGET = 32768, 64 * 1024 * 1024
+MIN_RELEVANCE = 2                # a full label, a gap, a client name, a --terms hit, or any term in a file name
+ARCHIVE_EXTS = (".zip", ".tar", ".tar.gz", ".tgz")
+SCANNED_EXTS = {".xlsx": 3, ".xlsm": 3, ".csv": 3, ".tsv": 3, ".eml": 2, ".emlx": 2, ".mbox": 2, ".txt": 2,
+                ".md": 2, ".markdown": 2, ".rst": 1, ".text": 2, ".log": 1, ".pdf": 2, ".docx": 2, ".json": 1,
+                ".yml": 1, ".yaml": 1, ".py": 1, ".ics": 1, ".bundle": 1}
+SNIFF_EXTS = {".csv", ".tsv", ".eml", ".emlx", ".mbox", ".txt", ".md", ".markdown", ".rst", ".text", ".log",
+              ".json", ".yml", ".yaml", ".py", ".ics"}
+CODE_TEXT_EXTS = {".py", ".pyi", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".rb", ".go", ".java", ".kt", ".cs", ".php",
+                  ".rs", ".c", ".h", ".cpp", ".hpp", ".swift", ".scala", ".sql", ".sh", ".r", ".lua", ".pl",
+                  ".yml", ".yaml", ".json", ".toml", ".cfg", ".ini", ".md", ".txt", ".csv", ".html", ".css"}
+JUNK_DIRS = {"__pycache__", "node_modules", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", ".cache",
+             "caches", "cache", ".npm", ".yarn", ".gradle", ".m2", ".cargo", ".rustup", "site-packages",
+             "dist-packages", "bower_components", ".next", ".nuxt", ".trash", ".trashes", "$recycle.bin",
+             "system volume information", ".spotlight-v100", ".fseventsd", ".documentrevisions-v100",
+             ".temporaryitems", "appdata", ".idea", ".ipynb_checkpoints"}
+CREDENTIAL_DIRS = {".ssh", ".gnupg", ".gpg", ".aws", ".azure", ".kube", ".docker", ".password-store", "keychains"}
+JUNK_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized", ".directory", "icon\r"}
+CREDENTIAL_FILE = re.compile(r"^(?:id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.?netrc|_netrc|\.pgpass|\.git-credentials|"
+                             r"\.env(?:\..*)?|credentials(?:\.json|\.csv)?|.*\.(?:pem|key|p12|pfx|jks|keystore|kdbx|kdb|"
+                             r"keychain|keychain-db|ppk|gpg|ovpn))$", re.I)
 
 # ---------------------------------------------------------------------------
 # Periods
@@ -1309,8 +1357,278 @@ def parse_simple_yaml(text):
 # ---------------------------------------------------------------------------
 # The scan
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Big exports: archives, relevance, mail, calendars, chat, git history
+# ---------------------------------------------------------------------------
+SOURCE_KINDS = {".xlsx": "spreadsheets", ".xlsm": "spreadsheets", ".csv": "CSV or TSV exports",
+                ".tsv": "CSV or TSV exports", ".eml": "emails (.eml, .emlx)", ".emlx": "emails (.eml, .emlx)",
+                ".mbox": "mailboxes (.mbox)", ".txt": "text notes", ".md": "text notes", ".markdown": "text notes",
+                ".log": "text notes", ".rst": "text notes", ".text": "text notes", ".pdf": "PDFs",
+                ".json": "JSON files", ".yml": "YAML files", ".yaml": "YAML files", ".py": "Python files",
+                ".docx": "Word documents", ".ics": "calendars (.ics)"}
+GIT_CODE_EXTS = {".py", ".pyi", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".rb", ".go", ".java", ".kt", ".cs",
+                 ".php", ".rs", ".c", ".h", ".cpp", ".hpp", ".swift", ".scala", ".sql", ".sh", ".r", ".lua", ".pl"}
+GIT_DEF = r"^[[:space:]]*(async[[:space:]]+)?(def|class)[[:space:]]+%s[[:space:]]*[(:]"
+
+
+def ext_of(name):
+    low = name.lower()
+    return ".tar.gz" if low.endswith(".tar.gz") else os.path.splitext(low)[1]
+
+
+def is_archive(name):
+    return name.lower().endswith(ARCHIVE_EXTS)
+
+
+def file_head(path, n=5):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(n)
+    except OSError:
+        return b""
+
+
+class _Skip(Exception):
+    """Something left unread on purpose (a limit or a safety rule); the message says why."""
+
+
+class GitError(Exception):
+    pass
+
+
+_TOKEN = re.compile(r"[a-z]+[0-9]*|[0-9]+")
+GENERIC_TERMS = {
+    "model", "models", "damaged", "damage", "final", "copy", "draft", "report", "reports", "export", "exports",
+    "data", "file", "files", "new", "old", "backup", "version", "sheet", "sheets", "book", "workbook", "the", "and",
+    "for", "from", "with", "total", "totals", "notes", "note", "email", "mail", "xlsx", "xlsm", "csv", "docx", "pdf",
+    "txt", "json", "board", "rules", "rule", "fixed", "broken", "recovered", "original", "temp", "tmp", "test",
+    "tests", "untitled", "document", "documents", "desktop", "downloads", "users", "home", "value", "values",
+    "label", "labels", "period", "periods", "item", "items", "line", "lines", "row", "rows", "column", "columns",
+    "input", "inputs", "output", "outputs", "summary", "assumption", "assumptions", "main", "index", "readme",
+    "misc", "other", "image", "images", "photo", "photos", "music", "video", "videos", "library", "public",
+    "private", "shared", "work", "projects", "project", "src", "lib", "utils", "util", "app", "self", "none",
+    "true", "false", "return", "print", "len", "get", "set", "this", "that", "your", "our", "you", "metric",
+    "metrics", "amount", "name", "date", "year", "month", "quarter"}
+
+
+def word_list(text):
+    return _TOKEN.findall(str(text or "").lower())
+
+
+def grams(text):
+    """Words and two- and three-word phrases of a text, for matching case terms."""
+    w = word_list(text)
+    out = set(w)
+    for k in (2, 3):
+        out.update(" ".join(w[i:i + k]) for i in range(len(w) - k + 1))
+    return out
+
+
+def norm_term(t):
+    w = word_list(t)
+    return " ".join(w) if 0 < len(w) <= 3 else ""
+
+
+def period_variants(disp, canon):
+    out = [disp]
+    if canon and canon[2]:
+        k, n, y = canon
+        if k in ("Q", "H"):
+            out += ["%s%d %d" % (k.lower(), n, y), "%d %s%d" % (y, k.lower(), n)]
+        elif k == "M":
+            out.append("%s %d" % (MON_ABBR[n].lower(), y))
+    return out
+
+
+def member_problem(name):
+    """Why an archive member's name is unsafe (absolute path, drive letter, '..'), or None."""
+    n = name.replace("\\", "/")
+    if "\x00" in n or n.startswith("/") or re.match(r"^[A-Za-z]:", n):
+        return "absolute path"
+    if ".." in n.split("/"):
+        return "path with '..'"
+    return None
+
+
+def mbox_spans(fh, limit):
+    """Byte spans of the messages of an mbox file, read only. Like the mailbox module, every line that starts
+    with "From " opens a message; the "From " line itself is left out of the message."""
+    spans, start, pos = [], None, 0
+    while True:
+        line = fh.readline()
+        if not line or line.startswith(b"From "):
+            if start is not None:
+                spans.append((start, pos))
+                if len(spans) >= limit:
+                    break
+            if not line:
+                break
+            start = pos + len(line)
+        pos += len(line)
+    return spans
+
+
+def ics_events(text):
+    """[(line_no, {"SUMMARY", "DESCRIPTION", "DTSTART"})] of the events of an .ics calendar (folded lines joined)."""
+    lines = []
+    for ln, raw in enumerate(text.splitlines(), 1):
+        if raw[:1] in (" ", "\t") and lines:
+            lines[-1][1] += raw[1:]
+        else:
+            lines.append([ln, raw])
+    events, cur = [], None
+    for ln, l in lines:
+        u = l.strip().upper()
+        if u == "BEGIN:VEVENT":
+            cur = (ln, {})
+        elif u == "END:VEVENT" and cur:
+            events.append(cur)
+            cur = None
+        elif cur and ":" in l:
+            name, val = l.split(":", 1)
+            key = name.split(";")[0].strip().upper()
+            if key in ("SUMMARY", "DESCRIPTION", "DTSTART") and key not in cur[1]:
+                cur[1][key] = re.sub(r"\\(.)", lambda m: "\n" if m.group(1) in "nN" else m.group(1), val)
+    return events
+
+
+def ics_date(v):
+    m = re.match(r"\s*(\d{4})(\d{2})(\d{2})", v or "")
+    return "%s-%s-%s" % m.groups() if m else ""
+
+
+def chat_messages(obj):
+    """The messages of a chat export file (Slack style: a list of messages with "text" and "ts"), else None."""
+    if isinstance(obj, dict) and isinstance(obj.get("messages"), list):
+        obj = obj["messages"]
+    if not isinstance(obj, list) or not obj:
+        return None
+    hits = [m for m in obj if isinstance(m, dict) and "ts" in m and "text" in m]
+    return hits if hits and len(hits) >= 0.6 * len(obj) else None
+
+
+def is_people_list(obj):
+    """A chat export's list of people (names, emails, phones): personal data, never evidence."""
+    if not isinstance(obj, list) or not obj:
+        return False
+    head = [m for m in obj[:20] if isinstance(m, dict)]
+    return bool(head) and sum(1 for m in head if "profile" in m or "real_name" in m) >= 0.6 * len(obj[:20])
+
+
+def chat_text(t):
+    t = str(t or "")
+    t = re.sub(r"<@[A-Z0-9]+(?:\|([^>]*))?>", lambda m: "@" + (m.group(1) or "someone"), t)
+    t = re.sub(r"<!(here|channel|everyone)[^>]*>", r"@\1", t)
+    t = re.sub(r"<#[A-Z0-9]+\|([^>]*)>", r"#\1", t)
+    t = re.sub(r"<((?:https?|mailto):[^|>]+)\|([^>]*)>", r"\2", t)
+    t = re.sub(r"<((?:https?|mailto):[^>]+)>", r"\1", t)
+    return htmlmod.unescape(t)
+
+
+def python_block(lines, ln):
+    """(first, last) line numbers of the def or class that starts on line ln, decorators included."""
+    i = ln - 1
+    ind = len(lines[i]) - len(lines[i].lstrip())
+    a = i
+    while a > 0 and lines[a - 1].strip().startswith("@") and len(lines[a - 1]) - len(lines[a - 1].lstrip()) == ind:
+        a -= 1
+    b = i
+    for j in range(i + 1, len(lines)):
+        t = lines[j]
+        if not t.strip():
+            continue
+        if len(t) - len(t.lstrip()) <= ind and not t.lstrip().startswith(("#", ")", "]", "}")):
+            break
+        b = j
+    return a + 1, b + 1
+
+
+def clip(code):
+    return code if len(code) <= MAX_GIT_CODE else code[:MAX_GIT_CODE] + "\n[... cut at %d characters]" % MAX_GIT_CODE
+
+
+class SafeGit(object):
+    """The git binary on a private bare copy of a client's history. Only objects and refs are copied (no client
+    config, hooks, attributes or alternates); the client's folder is never git's working directory; every command
+    runs with system and global config off, hooks pointed at nothing, no pager and no network protocols."""
+
+    def __init__(self, exe, tmp):
+        self.exe, self.tmp = exe, tmp
+        self.dir = os.path.join(tmp, "history.git")
+        self.env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "XDG_CONFIG_HOME": tmp,
+                    "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
+                    "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_ATTR_NOSYSTEM": "1", "LC_ALL": "C"}
+        tpl = os.path.join(tmp, "empty-template")
+        os.makedirs(tpl)
+        self.run("init", "-q", "--bare", "--template=" + tpl, self.dir, gitdir=False)
+
+    def run(self, *args, **kw):
+        cmd = [self.exe, "--no-pager", "-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false",
+               "-c", "core.attributesFile=" + os.devnull, "-c", "protocol.allow=never"]
+        if kw.get("gitdir", True):
+            cmd.append("--git-dir=" + self.dir)
+        try:
+            r = subprocess.run(cmd + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env,
+                               cwd=self.tmp, timeout=kw.get("timeout", 60))
+        except (OSError, subprocess.SubprocessError) as ex:
+            raise GitError(short(ex, 120))
+        if r.returncode not in kw.get("ok", (0,)):
+            msg = r.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise GitError(msg[-1] if msg else "git exited with code %d" % r.returncode)
+        return r.stdout.decode("utf-8", "replace")
+
+    def copy_from(self, src):
+        """objects/, refs/, packed-refs and HEAD of a client .git folder: regular files only (links are dropped),
+        never objects/info/alternates (it can point outside the case), size capped."""
+        total = 0
+        for sub in ("objects", "refs"):
+            base = os.path.join(src, sub)
+            if os.path.islink(base) or not os.path.isdir(base):
+                continue
+            for root, dirs, files in os.walk(base, followlinks=False):
+                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                rr = os.path.relpath(root, src)
+                dst = os.path.join(self.dir, rr)
+                os.makedirs(dst, exist_ok=True)
+                for f in files:
+                    if rr.replace(os.sep, "/") == "objects/info" and f in ("alternates", "http-alternates"):
+                        continue
+                    p = os.path.join(root, f)
+                    st = os.lstat(p)
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    total += st.st_size
+                    if total > MAX_GIT_COPY:
+                        raise GitError("its history is larger than %d MB" % (MAX_GIT_COPY // 1048576))
+                    shutil.copyfile(p, os.path.join(dst, f))
+        p = os.path.join(src, "packed-refs")
+        if os.path.isfile(p) and not os.path.islink(p):
+            shutil.copyfile(p, os.path.join(self.dir, "packed-refs"))
+        p = os.path.join(src, "HEAD")
+        if os.path.isfile(p) and not os.path.islink(p):
+            head = file_head(p, 300).strip()
+            if re.match(rb"^(?:ref: refs/[\w./-]+|[0-9a-f]{40}|[0-9a-f]{64})$", head) and b".." not in head:
+                with open(os.path.join(self.dir, "HEAD"), "wb") as fh:
+                    fh.write(head + b"\n")
+
+    def load_bundle(self, data):
+        """Objects of a git bundle, unpacked without any transport; its branches, tags and HEAD become refs."""
+        p = os.path.join(self.tmp, "in.bundle")
+        with open(p, "wb") as fh:
+            fh.write(data)
+        self.run("bundle", "verify", p)
+        for line in self.run("bundle", "unbundle", p).splitlines():
+            parts = line.split()
+            if len(parts) != 2 or not re.match(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", parts[0]):
+                continue
+            if parts[1] == "HEAD":
+                self.run("update-ref", "--no-deref", "HEAD", parts[0])
+            elif re.match(r"^refs/(?:heads|tags|remotes)/[\w./-]+$", parts[1]) and ".." not in parts[1]:
+                self.run("update-ref", parts[1], parts[0])
+
+
 class Scan(object):
-    def __init__(self, case_dir, case_id, model=None, out_dir="evidence"):
+    def __init__(self, case_dir, case_id, model=None, out_dir="evidence", max_files=MAX_FILES, terms=None):
         self.case_dir = os.path.abspath(case_dir)
         self.case_id = case_id.strip()
         m = re.match(r"^C-?(.+)$", self.case_id, re.I)
@@ -1329,9 +1647,28 @@ class Scan(object):
         self.values, self.reported = [], []
         self.model_rows = set()        # labels of the model's table rows (assumption labels are not in it)
         self.known, self.known_missing = [], []   # figures the client says do not exist (leave blank, flag)
+        self.max_files = max(1, int(max_files or MAX_FILES))
+        if isinstance(terms, str):
+            terms = terms.split(",")
+        self.extra_terms = [t.strip() for t in (terms or []) if t and t.strip()]
+        self.git = shutil.which("git")
+        self.git_dirs, self.git_bundles, self.archives = [], [], []
+        self.src, self.junk, self.not_scanned, self.not_read = {}, {}, [], {}
+        self.walk_rels, self.locmaps, self._locmap, self._open, self._seen = [], {}, None, [], {}
+        self.big = False                 # more files than max_files: containers keep only what matches the case
 
     # -- records ----------------------------------------------------------
     def frag(self, source_file, location, ftype, conf, notes):
+        if len(self.fragments) >= FRAG_CAP - 1:
+            # Id range full: the last id becomes one catch-all fragment that every later item cites. Each value
+            # and rule still names its own file and line in its "source", so nothing loses its origin.
+            if len(self.fragments) == FRAG_CAP - 1:
+                self.fragments.append({"fragment_id": "F-%s-%03d" % (self.num, FRAG_CAP), "source_file": "(several files)",
+                                       "location": "see inventory.md", "type": "clue", "confidence": 0.0, "notes": "",
+                                       "_more": 0})
+            over = self.fragments[-1]
+            over["_more"] += 1
+            return over
         f = {"fragment_id": "F-%s-%03d" % (self.num, len(self.fragments) + 1), "source_file": source_file,
              "location": location, "type": ftype, "confidence": round(max(0.0, min(1.0, conf)), 2), "notes": notes}
         self.fragments.append(f)
@@ -1370,39 +1707,91 @@ class Scan(object):
         self.inventory.append(e)
         return e
 
+    def _loc(self, ln):
+        """Where line ln of the text being scanned comes from: "line12", or "event3" / "ts=..." for blocks."""
+        if self._locmap is not None and ln in self._locmap:
+            return self._locmap[ln]
+        return "line%d" % ln
+
+    def src_add(self, kind, seen=1, scanned=None):
+        c = self.src.setdefault(kind, [0, 0])
+        c[0] += seen
+        c[1] += seen if scanned is None else scanned
+
+    def junk_add(self, kind):
+        self.junk[kind] = self.junk.get(kind, 0) + 1
+
     # -- main ---------------------------------------------------------------
     def list_files(self):
         out, skipped = [], []
         out_abs = os.path.abspath(self.out_dir)
         for root, dirs, files in os.walk(self.case_dir, followlinks=False):
+            self.src_add("folders walked")
             keep = []
             for d in sorted(dirs):
                 full = os.path.join(root, d)
-                if d.lower() in SKIP_DIRS or os.path.abspath(full) == out_abs or os.path.islink(full):
-                    why = "folder skipped"
-                    if d == ".git":
-                        why = ("git history, not scanned here: search it for missing code with "
-                               "git log -S '<name>' and git log -p")
-                    elif d.lower() == "quarantine":
-                        why = "quarantine folder, never opened"
-                    skipped.append((os.path.relpath(full, self.case_dir).replace(os.sep, "/"), why))
+                rel = os.path.relpath(full, self.case_dir).replace(os.sep, "/")
+                dl = d.lower()
+                if dl == ".git" and not os.path.islink(full):
+                    self.git_dirs.append((rel, full))
+                elif dl == "quarantine":
+                    skipped.append((rel, "quarantine folder, never opened"))
+                elif dl in SKIP_DIRS or os.path.abspath(full) == out_abs or os.path.islink(full):
+                    skipped.append((rel, "git history, not scanned here: a link, not followed" if dl == ".git"
+                                    else "folder skipped"))
+                elif dl in CREDENTIAL_DIRS:
+                    skipped.append((rel, "key or credential folder, never opened"))
+                elif dl in JUNK_DIRS:
+                    skipped.append((rel, "cache or system folder, skipped"))
+                elif d.startswith("."):
+                    skipped.append((rel, "hidden folder, not read"))
                 else:
                     keep.append(d)
             dirs[:] = keep
             for fn in sorted(files):
                 full = os.path.join(root, fn)
                 rel = os.path.relpath(full, self.case_dir).replace(os.sep, "/")
+                ext = ext_of(fn)
                 if os.path.islink(full):
                     skipped.append((rel, "symbolic link, not followed"))
+                elif fn.lower() in JUNK_FILES or fn.startswith("._"):
+                    self.junk_add("system files (.DS_Store and the like)")
+                elif CREDENTIAL_FILE.match(fn):
+                    skipped.append((rel, "possible key or credential file, never opened"))
+                elif fn == ".git":
+                    skipped.append((rel, "git pointer file (a worktree or submodule): its history lives elsewhere"))
                 elif fn.startswith("."):
                     skipped.append((rel, "hidden file, not read"))
+                elif (ext not in SCANNED_EXTS and not is_archive(fn) and os.path.getsize(full) > MAX_BINARY_BYTES
+                      and file_head(full) != b"From "):
+                    self.junk_add("large files of a type this tool does not read")
                 else:
                     out.append((rel, full))
+        self.walk_rels = [r for r, _ in out]
+        self.src_add("files found in folders", len(out))
         return out, skipped
 
     def run(self):
         files, skipped = self.list_files()
         self.case_names = {os.path.basename(r).lower() for r, _ in files}
+        try:
+            self.scan_all(files)
+        finally:
+            for h in self._open:
+                try:
+                    h.close()
+                except Exception:
+                    pass
+            self._open = []
+        for i, (rel, why) in enumerate(skipped):
+            if i < MAX_SKIP_LISTED:
+                self.inv(rel, why)
+            else:
+                self.junk_add("skipped files and folders not listed one by one")
+        self.finalize()
+        return self.write()
+
+    def scan_all(self, files):
         model_full = os.path.abspath(self.model_arg) if self.model_arg else None
         if model_full is None:
             xl = [(r, f) for r, f in files if r.lower().endswith((".xlsx", ".xlsm"))]
@@ -1411,44 +1800,337 @@ class Scan(object):
             pick = named[0] if len(named) == 1 else (plain[0] if len(plain) == 1 and not named else None)
             if pick:
                 model_full = os.path.abspath(pick[1])
-        seen = {}
-        order = []
+        head, cands = [], []
         if model_full:
             if not os.path.isfile(model_full):
                 raise SystemExit("model not found: %s" % self.model_arg)
             inside = [r for r, f in files if os.path.abspath(f) == model_full]
             self.model_rel = inside[0] if inside else os.path.basename(model_full)
-            order.append((self.model_rel, model_full, True))
+            head.append({"rel": self.model_rel, "full": model_full, "model": True})
             self.case_names.add(os.path.basename(model_full).lower())
         for r, f in files:
             if model_full and os.path.abspath(f) == model_full:
                 continue
-            order.append((r, f, False))
-        for rel, full, is_model in order:
+            if is_archive(r):
+                cands.extend(self.list_archive(r, path=f))
+            else:
+                cands.append({"rel": r, "full": f})
+        if not head and not self.model_arg and not any(r.lower().endswith((".xlsx", ".xlsm")) for r, _ in files):
+            named = [c for c in cands if c.get("read") and c["rel"].lower().endswith((".xlsx", ".xlsm"))
+                     and "model" in os.path.basename(c["rel"]).lower()]
+            if len(named) == 1:      # the damaged model sits inside an archive (a zipped drive)
+                cands.remove(named[0])
+                named[0]["model"] = True
+                head.append(named[0])
+        todo = head + cands
+        real = [c for c in cands if "marker" not in c]
+        if len(real) > self.max_files:
+            # A big export: scan the model first, so its labels, periods and damaged cells can rank the rest.
+            self.big = True
+            for c in head:
+                self.scan_candidate(c)
+            # containers are always opened; inside them only the messages and events that match the case are read
+            keep = self.select(real) | {id(c) for c in real if ext_of(c["rel"]) in (".mbox", ".ics", ".bundle")}
+            todo = [c for c in cands if "marker" in c or id(c) in keep]
+            for c in real:
+                if id(c) in keep:
+                    continue
+                ext = ext_of(c["rel"])
+                if ext in SCANNED_EXTS:
+                    self.not_scanned.append(c["rel"])
+                else:
+                    self.not_read[ext or "(no extension)"] = self.not_read.get(ext or "(no extension)", 0) + 1
+            self.src_add("seen, not scanned (over --max-files)", len(real) - len(keep))
+        for c in todo:
+            self.scan_candidate(c)
+        for info in self.archives:
+            if info["limit"]:
+                self.gap(5, "%s: %d member(s) were not read (%s)" % (info["rel"], len(info["limit"]),
+                                                                   "; ".join(info["limit"][:3])),
+                         "Whatever those members hold is not in the evidence.",
+                         ["ask the client for those files unpacked, or in a smaller archive",
+                          "rerun the scanner on the unpacked folder"], files=[info["rel"]])
+
+    def scan_candidate(self, c):
+        if "marker" in c:
+            self.archive_note(c["marker"])
+            return
+        rel = c["rel"]
+        if c.get("full"):
+            full = c["full"]
             try:
                 size = os.path.getsize(full)
                 if size > MAX_FILE_BYTES:
+                    if ext_of(rel) == ".mbox" or (not ext_of(rel) and file_head(full) == b"From "):
+                        self.src_add("mailboxes (.mbox)")
+                        try:
+                            self.scan_mbox(rel, path=full)
+                        except Exception as ex:
+                            self.parse_failed(rel, ex)
+                        return
                     e = self.inv(rel, "file too large to scan (%d MB)" % (size // 1048576))
                     self.frag(rel, "whole file", "clue", 0.2, "not scanned: larger than %d MB" % (MAX_FILE_BYTES // 1048576))
-                    continue
+                    return
                 with open(full, "rb") as fh:
                     data = fh.read()
             except OSError as ex:
                 self.inv(rel, "could not be opened: %s" % ex)
+                return
+        else:
+            try:
+                data = c["read"]()
+            except _Skip as ex:
+                c["archive"]["limit"].append("%s skipped: %s" % (short(rel, 80), ex))
+                if c["archive"].get("inv"):
+                    c["archive"]["inv"]["missing"].append("%s not read: %s" % (rel, ex))
+                return
+            except Exception as ex:
+                self.inv(rel, "could not be read from the archive (%s: %s)" % (type(ex).__name__, short(ex, 100)))
+                return
+            self.src_add("archive members", 0, 1)
+        h = hashlib.sha256(data).hexdigest()
+        if h in self._seen:
+            self.inv(rel, "identical copy of %s (not scanned twice)" % self._seen[h])
+            return
+        self._seen[h] = rel
+        self.process(rel, data, is_model=c.get("model", False))
+
+    # -- archives -----------------------------------------------------------
+    def list_archive(self, rel, path=None, data=None, level=1, budget=None):
+        """Members of a .zip or .tar(.gz) archive as scan candidates. Members are read into memory only when
+        scanned, never written to disk. Unsafe members (absolute paths, '..', links, devices, encrypted, bomb-like
+        compression) are skipped; total size and member count are capped; an archive inside an archive is
+        opened one level deep only."""
+        info = {"rel": rel, "kind": "zip" if rel.lower().endswith(".zip") else "tar", "members": 0, "files": 0,
+                "skipped": [], "limit": [], "inv": None, "error": None}
+        self.archives.append(info)
+        self.src_add("archives (.zip, .tar, .tar.gz)")
+        budget = budget if budget is not None else {"left": MAX_ARCHIVE_BYTES}
+        out = [{"rel": rel, "marker": info}]
+        try:
+            if info["kind"] == "zip":
+                h = zipfile.ZipFile(path if path else io.BytesIO(data))
+            else:
+                h = tarfile.open(name=path, mode="r:*") if path else tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+        except Exception as ex:
+            info["error"] = "%s: %s" % (type(ex).__name__, short(ex, 100))
+            return out
+        self._open.append(h)
+        members = []
+        try:
+            for m in (h.infolist() if info["kind"] == "zip" else h):
+                if len(members) >= MAX_ARCHIVE_MEMBERS:
+                    info["limit"].append("more than %d members: the rest were not listed" % MAX_ARCHIVE_MEMBERS)
+                    break
+                members.append(m)
+        except Exception as ex:
+            info["error"] = "listing stopped early (%s: %s)" % (type(ex).__name__, short(ex, 100))
+        for m in members:
+            if info["kind"] == "zip":
+                name, isdir = m.filename, m.is_dir()
+                mode = (m.external_attr >> 16) & 0o170000
+                link, other = mode == 0o120000, mode not in (0, 0o100000, 0o040000, 0o120000)
+                size, enc = m.file_size, bool(m.flag_bits & 0x1)
+                bomb = size > 10 * 1048576 and size > 200 * max(1, m.compress_size)
+            else:
+                name, isdir = m.name, m.isdir()
+                link, other = m.issym() or m.islnk(), not (m.isfile() or m.isdir() or m.issym() or m.islnk())
+                size, enc, bomb = m.size, False, False
+            if isdir:
                 continue
-            h = hashlib.sha256(data).hexdigest()
-            if h in seen:
-                self.inv(rel, "identical copy of %s (not scanned twice)" % seen[h])
+            info["members"] += 1
+            parts = [p for p in name.replace("\\", "/").split("/") if p not in ("", ".")]
+            low = [p.lower() for p in parts]
+            bad = member_problem(name)
+            if bad:
+                info["limit"].append("%s skipped: %s" % (short(name, 80), bad))
+            elif link or other:
+                info["skipped"].append("%s (%s)" % (short(name, 80), "a link, not followed" if link else
+                                                    "not a regular file"))
+            elif enc:
+                info["limit"].append("%s is encrypted, not read" % short(name, 80))
+            elif not parts:
                 continue
-            seen[h] = rel
-            self.process(rel, data, is_model=is_model)
-        for rel, why in skipped:
-            self.inv(rel, why)
-        self.finalize()
-        return self.write()
+            elif "quarantine" in low[:-1]:
+                info["skipped"].append("%s (quarantine folder, never opened)" % short(name, 80))
+            elif any(p in CREDENTIAL_DIRS for p in low[:-1]) or CREDENTIAL_FILE.match(parts[-1]):
+                info["skipped"].append("%s (possible key or credential file, never opened)" % short(name, 80))
+            elif ".git" in low[:-1]:
+                info["git"] = "/".join(parts[:low.index(".git") + 1])
+            elif (any(p in SKIP_DIRS or p in JUNK_DIRS or p.startswith(".") for p in low[:-1])
+                  or low[-1] in JUNK_FILES or parts[-1].startswith(".")):
+                self.junk_add("junk, cache or hidden files inside archives")
+            elif bomb:
+                info["limit"].append("%s skipped: its compression ratio looks like an archive bomb" % short(name, 80))
+            elif ext_of(parts[-1]) not in SCANNED_EXTS and not is_archive(parts[-1]) and size > MAX_BINARY_BYTES:
+                self.junk_add("large files of a type this tool does not read")
+            else:
+                mrel = rel + "/" + "/".join(parts)
+                self.case_names.add(parts[-1].lower())
+                read = self.member_reader(h, info["kind"], m, size, budget)
+                if not is_archive(parts[-1]):
+                    info["files"] += 1
+                    c = {"rel": mrel, "read": read, "archive": info}
+                    if info["kind"] == "zip":
+                        c["peek"] = (lambda n, h=h, m=m: h.open(m).read(n))
+                    out.append(c)
+                elif level >= 2:
+                    info["skipped"].append("%s (an archive nested more than one level deep, not opened)" % short(name, 80))
+                else:
+                    try:
+                        inner = read()
+                    except _Skip as ex:
+                        info["limit"].append("%s skipped: %s" % (short(name, 80), ex))
+                        continue
+                    except Exception as ex:
+                        info["skipped"].append("%s could not be read (%s)" % (short(name, 80), type(ex).__name__))
+                        continue
+                    out.extend(self.list_archive(mrel, data=inner, level=level + 1, budget=budget))
+        self.src_add("archive members", info["members"], 0)
+        return out
+
+    def member_reader(self, h, kind, m, size, budget):
+        def read():
+            if size > MAX_FILE_BYTES:
+                raise _Skip("larger than %d MB" % (MAX_FILE_BYTES // 1048576))
+            if size > budget["left"]:
+                raise _Skip("the %d MB read limit for one archive was reached" % (MAX_ARCHIVE_BYTES // 1048576))
+            f = h.open(m) if kind == "zip" else h.extractfile(m)
+            if f is None:
+                raise _Skip("not a regular file")
+            try:
+                data = f.read(size + 1)
+            finally:
+                f.close()
+            if len(data) > size:
+                raise _Skip("it holds more data than its header says")
+            budget["left"] -= len(data)
+            return data
+        return read
+
+    def archive_note(self, info):
+        e = self.inv(info["rel"], "%s archive, read in memory and never unpacked: %d file(s), %d of a type this tool "
+                     "reads (scanned as %s/<path>)" % (info["kind"], info["members"], info["files"], info["rel"]))
+        info["inv"] = e
+        if info["error"]:
+            e["missing"].append("could not be opened or fully listed (%s)" % info["error"])
+            self.frag(info["rel"], "whole file", "clue", 0.2, "archive could not be read: %s" % info["error"])
+            self.gap(5, "%s could not be opened as an archive (%s)" % (info["rel"], short(info["error"], 80)),
+                     "Whatever it holds is unavailable to the rebuild until a readable copy is found.",
+                     ["a fresh copy of %s from the client" % os.path.basename(info["rel"]), "ask the client"],
+                     files=[info["rel"]])
+        if info["skipped"]:
+            e["missing"].append("%d member(s) skipped by the safety rules: %s" % (
+                len(info["skipped"]), "; ".join(info["skipped"][:5])))
+        if info["limit"]:
+            e["missing"].append("%d member(s) not read: %s" % (len(info["limit"]), "; ".join(info["limit"][:5])))
+        if info.get("git"):
+            e["missing"].append("holds git history (%s) that is not read inside an archive: ask for the repository "
+                                "folder or a git bundle" % info["git"])
+
+    def scan_archive_now(self, rel, data):
+        """An archive inside another file (an email attachment): listed and scanned on the spot."""
+        level = sum(1 for p in rel.split("/") if is_archive(p))
+        if level > 2:
+            self.inv(rel, "archive nested more than one level deep, not opened")
+            return
+        for c in self.list_archive(rel, data=data, level=level):
+            self.scan_candidate(c)
+
+    # -- relevance (big exports) ----------------------------------------------
+    def case_terms(self):
+        """Terms that make a file, message or event relevant to this case, with weights: --terms, the model's
+        labels, sheet names and periods, its damaged cells (the gaps), rule labels, names the code calls but
+        never defines, and client names (words shared by the case's top-level file names and the model's name)."""
+        T = {}
+
+        def add(t, w, minlen=3):
+            t = norm_term(t)
+            if len(t) < minlen or t in GENERIC_TERMS or t.replace(" ", "").isdigit():
+                return
+            T[t] = max(T.get(t, 0), w)
+        for t in self.extra_terms:
+            add(t, 6, 2)
+        M = self.model
+        if M:
+            for sname in M["sheets"]:
+                add(sname, 1)
+            for l in self.model_labels:      # whole labels only: single words ("list", "net") match too much
+                add(l, 2)
+            for p, c in self.model_periods:
+                for v in period_variants(p, c):
+                    add(v, 1)
+            for d in M["damaged"]:
+                add(d["label"], 4)
+                if d.get("period"):
+                    for v in period_variants(d["period"], d.get("canon")):
+                        add(v, 3)
+        tops = {}
+        for r in self.walk_rels:
+            if "/" not in r:
+                for wd in set(word_list(os.path.splitext(r)[0])):
+                    tops[wd] = tops.get(wd, 0) + 1
+        mwords = set(word_list(os.path.splitext(os.path.basename(self.model_rel or ""))[0]))
+        for wd in set(tops) | mwords:
+            if len(wd) >= 4 and wd.isalpha() and (tops.get(wd, 0) >= 2 or wd in mwords):
+                add(wd, 3)
+        for r in self.rules[:300]:
+            lab = re.split(r"\s*[=:]\s*", r["text"], maxsplit=1)[0]
+            if lab != r["text"]:
+                add(lab, 2)
+        for A in self.py_mods:
+            for name in A["called"]:
+                if name not in A["defined"] and name not in BUILTIN_NAMES:
+                    add(name, 3)
+        return T
+
+    @staticmethod
+    def term_score(text, terms):
+        g = grams(text)
+        if len(g) < len(terms):
+            return sum(terms.get(x, 0) for x in g)
+        return sum(w for t, w in terms.items() if t in g)
+
+    def relevance(self, text, terms):
+        """How relevant a text is to the case; with no terms at all, any rule-like sentence with a number counts."""
+        if terms:
+            return self.term_score(text, terms)
+        return MIN_RELEVANCE if RULE_KW.search(text) and re.search(r"\d", text) else 0
+
+    def peek(self, c):
+        try:
+            if c.get("full"):
+                return file_head(c["full"], SNIFF_BYTES)
+            if c.get("peek"):
+                return c["peek"](SNIFF_BYTES)
+        except Exception:
+            pass
+        return b""
+
+    def select(self, cands):
+        """Big export: ids of the max_files candidates most relevant to the case, judged by their path (terms
+        count three times there) and a peek at the start of text files. When there are terms, a file below
+        MIN_RELEVANCE is not scanned even if slots are left: unrelated personal files stay out."""
+        terms = self.case_terms()
+        budget, ranked = SNIFF_BUDGET, []
+        for i, c in enumerate(cands):
+            ext = ext_of(c["rel"])
+            base = SCANNED_EXTS.get(ext, 0) if not is_archive(c["rel"]) else 0
+            if not base:
+                continue
+            s = 3 * self.term_score(c["rel"].replace("/", " "), terms) if terms else 0
+            if terms and ext in SNIFF_EXTS and budget > 0:
+                head = self.peek(c)
+                budget -= len(head)
+                s += self.term_score(head.decode("utf-8", "replace"), terms)
+            if terms and s < MIN_RELEVANCE:
+                continue
+            ranked.append((-s, -base, c["rel"].count("/"), i))
+        return {id(cands[r[3]]) for r in sorted(ranked)[:self.max_files]}
 
     def process(self, rel, data, is_model=False, origin=None):
-        ext = os.path.splitext(rel)[1].lower()
+        ext = ext_of(rel)
+        kind, read = SOURCE_KINDS.get(ext, "files of other types (not read)"), 1
         try:
             if ext in (".xlsx", ".xlsm"):
                 self.scan_xlsx(rel, data, is_model)
@@ -1468,19 +2150,38 @@ class Scan(object):
                 self.scan_py(rel, data)
             elif ext == ".docx":
                 self.scan_docx(rel, data)
+            elif is_archive(rel):
+                kind = None                      # counted by list_archive
+                self.scan_archive_now(rel, data)
+            elif ext == ".mbox" or (not ext and data[:5] == b"From "):
+                kind = "mailboxes (.mbox)"
+                self.scan_mbox(rel, data)
+            elif ext == ".emlx":
+                self.scan_emlx(rel, data)
+            elif ext == ".ics":
+                self.scan_ics(rel, data)
+            elif ext == ".bundle":
+                kind, read = "git bundles", 0    # read with the git history, after every file
+                self.git_bundles.append((rel, data))
             else:
+                read = 0
                 e = self.inv(rel, "unrecognised file type (%s, %d bytes); not read" % (ext or "no extension", len(data)))
                 self.frag(rel, "whole file", "clue", 0.2, "unrecognised file type %s; a person or another tool should "
                           "look at it" % (ext or "(none)"))
                 e["missing"].append("not read by this tool")
         except Exception as ex:  # a broken client file must never stop the scan
-            e = self.inv(rel, "could not be parsed (%s: %s)" % (type(ex).__name__, short(ex, 120)))
-            self.frag(rel, "whole file", "clue", 0.2, "parse failed: %s" % short(ex, 120))
-            self.gap(5, "%s could not be parsed (%s)" % (rel, short(ex, 80)),
-                     "Whatever this file holds is unavailable to the rebuild until a readable copy is found.",
-                     ["a fresh copy of %s from the client" % os.path.basename(rel),
-                      "the client's past email threads (search the file name, check attachments)", "ask the client"],
-                     files=[rel])
+            self.parse_failed(rel, ex)
+        if kind:
+            self.src_add(kind, 1, read)
+
+    def parse_failed(self, rel, ex):
+        e = self.inv(rel, "could not be parsed (%s: %s)" % (type(ex).__name__, short(ex, 120)))
+        self.frag(rel, "whole file", "clue", 0.2, "parse failed: %s" % short(ex, 120))
+        self.gap(5, "%s could not be parsed (%s)" % (rel, short(ex, 80)),
+                 "Whatever this file holds is unavailable to the rebuild until a readable copy is found.",
+                 ["a fresh copy of %s from the client" % os.path.basename(rel),
+                  "the client's past email threads (search the file name, check attachments)", "ask the client"],
+                 files=[rel])
 
     # -- xlsx -------------------------------------------------------------
     def scan_xlsx(self, rel, data, is_model):
@@ -1780,7 +2481,7 @@ class Scan(object):
                 canon = own[0] if len(set(own)) == 1 else (hp if not own else None)
                 if canon:
                     kind = "reported" if (COMPUTED_WORDS.search(label) or not RAW_WORDS.search(label)) else "values"
-                    self.add_item(kind, label, display_period(canon), canon, v, rel, "line%d" % ln,
+                    self.add_item(kind, label, display_period(canon), canon, v, rel, self._loc(ln),
                                   min(c + 0.2, 0.8), "label: value line under a heading" if not own else "label: value line",
                                   is_plan_file(rel))
                     nf += 1
@@ -1792,25 +2493,25 @@ class Scan(object):
             if r:
                 flags = rule_flags(group) if group != sent else {}
                 flags.update(rule_flags(sent))
-                self.add_rule(rel, "line%d" % ln, r, c, origin, context=context,
+                self.add_rule(rel, self._loc(ln), r, c, origin, context=context,
                               row_hint=self.row_hint(sent, ctx_hint) or None, flags=flags)
                 nr += 1
             fig = self.quoted_figure(sent, hp)
             if fig:
                 label, canon, v = fig
                 kind = "reported" if (COMPUTED_WORDS.search(label) or not RAW_WORDS.search(label)) else "values"
-                self.add_item(kind, label, display_period(canon), canon, v, rel, "line%d" % ln, min(c, 0.6),
+                self.add_item(kind, label, display_period(canon), canon, v, rel, self._loc(ln), min(c, 0.6),
                               "number inside a sentence")
                 nf += 1
         for ln, text, nums, context in md_rules:
-            self.add_rule(rel, "line%d" % ln, {"text": text, "numbers": nums, "operator_hint": operator_hint(text)},
+            self.add_rule(rel, self._loc(ln), {"text": text, "numbers": nums, "operator_hint": operator_hint(text)},
                           min(conf + 0.2, 0.8), "table", context=context)
             nr += 1
         if tbl:
             kind, by_name = file_kind(rel, [t[1] for t in tbl])
             self.kinds.setdefault(rel, kind)
             for ln, label, praw, canon, v in tbl:
-                self.add_item(kind, label, praw, canon, v, rel, "line%d" % ln, min(conf + 0.2, 0.8),
+                self.add_item(kind, label, praw, canon, v, rel, self._loc(ln), min(conf + 0.2, 0.8),
                               "markdown table" if ln in md_lines else "text table", is_plan_file(rel))
             e["found"].append("%d figures in a text table (%s)" % (len(tbl), kind))
         if nr:
@@ -1821,7 +2522,7 @@ class Scan(object):
             e["found"].append("%d figure(s) the client says are not available" % nk)
         for ln, t in numbered:
             if _INJECT.search(t or ""):
-                self.frag(rel, "line%d" % ln, "clue", 0.1, "instruction-like text found; treated as data and not "
+                self.frag(rel, self._loc(ln), "clue", 0.1, "instruction-like text found; treated as data and not "
                           "followed: %s" % short(t, 100))
                 e["missing"].append("contains instruction-like text (line %d), ignored" % ln)
                 break
@@ -1900,10 +2601,10 @@ class Scan(object):
                                                       "yet", "the", "any", "all", "our", "it", "them", "that", "this"}:
             return False
         canon = canons.pop()
-        f = self.frag(rel, "line%d" % ln, "clue", conf, "the client says %s for %s is not available (leave it blank and "
+        f = self.frag(rel, self._loc(ln), "clue", conf, "the client says %s for %s is not available (leave it blank and "
                       "flag it, do not estimate): %s" % (label, display_period(canon), short(sent, 160)))
         self.known.append({"label_raw": label, "canon": canon, "period_raw": display_period(canon), "rel": rel,
-                           "source": "%s#line%d" % (rel, ln), "frag": f, "text": sent})
+                           "source": "%s#%s" % (rel, self._loc(ln)), "frag": f, "text": sent})
         return True
 
     def text_rule(self, sent, ctx_kw=False):
@@ -2105,10 +2806,125 @@ class Scan(object):
         if not body.strip():
             e["missing"].append("no readable body")
 
+    # -- mail exports, calendars, chat ------------------------------------------
+    def scan_mbox(self, rel, data=None, path=None):
+        """An .mbox mail export, opened read only. Each message is scanned as an email (headers record, body rules
+        and figures, attachments) and listed as <mbox>/message-<n>.eml. A big mailbox, or any mailbox in a big
+        export, keeps only the messages that match the case terms, so unrelated mail stays out of the evidence."""
+        fh = io.BytesIO(data) if data is not None else open(path, "rb")
+        try:
+            spans = mbox_spans(fh, MAX_MAILBOX_LOOK)
+            n = len(spans)
+            e = self.inv(rel, "mailbox (.mbox), %d message(s)" % n)
+
+            def raw(i):
+                fh.seek(spans[i][0])
+                return fh.read(spans[i][1] - spans[i][0])
+            pick = list(range(n))
+            if n > MAX_MAIL_MESSAGES or self.big:
+                terms = self.case_terms()
+                scored = []
+                for i in range(n):
+                    fh.seek(spans[i][0])
+                    s = self.relevance(fh.read(min(65536, spans[i][1] - spans[i][0])).decode("utf-8", "replace"), terms)
+                    if s >= MIN_RELEVANCE:
+                        scored.append((-s, i))
+                pick = sorted(i for _, i in sorted(scored)[:MAX_MAIL_MESSAGES])
+                e["missing"].append("%d message(s) did not match the case terms and were not scanned" % (n - len(pick)))
+            for i in pick:
+                mrel = "%s/message-%d.eml" % (rel, i + 1)
+                try:
+                    self.scan_eml(mrel, raw(i))
+                except Exception as ex:
+                    self.inv(mrel, "could not be parsed (%s: %s)" % (type(ex).__name__, short(ex, 100)))
+            e["found"].append("%d message(s) scanned as emails, listed as %s/message-<n>.eml" % (len(pick), rel))
+            self.src_add("mailbox messages", n, len(pick))
+        finally:
+            fh.close()
+
+    def scan_emlx(self, rel, data):
+        """Apple Mail .emlx: a byte count line, the message, then a property list."""
+        m = re.match(rb"\s*(\d+)[ \t]*\r?\n", data)
+        self.scan_eml(rel, data[m.end():m.end() + int(m.group(1))] if m else data)
+
+    def scan_located_text(self, rel, blocks, e, conf, origin):
+        """Text blocks [(location, text)] (calendar events, chat messages) scanned as one text, so each rule or
+        figure cites its own block: <file>#event3, <file>#ts=1700000000.000100."""
+        numbered, lmap, n = [], {}, 0
+        for loc, text in blocks:
+            for t in text.splitlines():
+                n += 1
+                numbered.append((n, t))
+                lmap[n] = loc
+            n += 1
+            numbered.append((n, ""))
+        self.locmaps[rel] = lmap
+        self._locmap = lmap
+        try:
+            self.scan_text_lines(rel, numbered, e, conf, origin)
+        finally:
+            self._locmap = None
+
+    def scan_ics(self, rel, data):
+        text, _ = decode_text(data)
+        events = ics_events(text)
+        e = self.inv(rel, "calendar (.ics), %d event(s)" % len(events))
+        terms = self.case_terms() if len(events) > MAX_CAL_EVENTS or self.big else None
+        blocks = []
+        for k, (ln, ev) in enumerate(events, 1):
+            body = "%s\n%s" % (ev.get("SUMMARY", ""), ev.get("DESCRIPTION", ""))
+            if terms is not None and (len(blocks) >= MAX_CAL_EVENTS or self.relevance(body, terms) < MIN_RELEVANCE):
+                continue
+            blocks.append(("event%d" % k, body))
+        if len(blocks) < len(events):
+            e["missing"].append("%d event(s) did not match the case terms and were not scanned" % (len(events) - len(blocks)))
+        self.src_add("calendar events", len(events), len(blocks))
+        r0, i0, k0 = len(self.rules), len(self.items), len(self.known)
+        self.scan_located_text(rel, blocks, e, 0.5, "calendar")
+        used = set()
+        for x in self.rules[r0:] + self.items[i0:] + self.known[k0:]:
+            m = re.search(r"#event(\d+)$", x["source"])
+            if m:
+                used.add(int(m.group(1)))
+        for k in sorted(used):
+            ev = events[k - 1][1]
+            self.frag(rel, "event%d" % k, "record", 0.8, "calendar event | %s | %s" % (
+                ics_date(ev.get("DTSTART")) or "no date", short(ev.get("SUMMARY", ""), 120)))
+        if not e["found"]:
+            e["found"].append("no rules or figures")
+
+    def scan_chat(self, rel, msgs):
+        """A chat export file (Slack style). Each message is text evidence that cites <file>#ts=<ts>. Only the
+        text is read: user names and profiles are not recorded."""
+        e = self.inv(rel, "chat export, %d message(s)" % len(msgs))
+        terms = self.case_terms() if len(msgs) > MAX_CHAT_MESSAGES or self.big else None
+        blocks = []
+        for k, m in enumerate(msgs, 1):
+            t = chat_text(m.get("text"))
+            if not t.strip():
+                continue
+            if terms is not None and (len(blocks) >= MAX_CHAT_MESSAGES or self.relevance(t, terms) < MIN_RELEVANCE):
+                continue
+            ts = str(m.get("ts") or "").strip()
+            blocks.append((("ts=%s" % ts) if re.match(r"^\d+(?:\.\d+)?$", ts) else "message%d" % k, t))
+        if terms is not None:
+            e["missing"].append("%d message(s) did not match the case terms and were not scanned" % (len(msgs) - len(blocks)))
+        self.src_add("chat messages", len(msgs), len(blocks))
+        self.src_add("chat export files")
+        self.scan_located_text(rel, blocks, e, 0.5, "chat")
+        if not e["found"]:
+            e["found"].append("no rules or figures")
+
     # -- json / yaml --------------------------------------------------------
     def scan_json(self, rel, data):
         text, _ = decode_text(data)
         obj = json.loads(text)
+        chat = chat_messages(obj)
+        if chat is not None:
+            return self.scan_chat(rel, chat)
+        if is_people_list(obj):
+            self.inv(rel, "list of people (names and contacts), as in a chat export: personal data, not scanned")
+            return
         e = self.inv(rel, "JSON")
         self.texts[rel] = text.lower()[:2000000]
         n = clues = 0
@@ -2226,7 +3042,7 @@ class Scan(object):
         A["inv"] = e
         if not A["ok"]:
             e["missing"].append("does not parse (%s)" % A["error"])
-            self.gap(1, "%s does not parse (%s); it may be truncated or partly overwritten" % (rel, A["error"]),
+            A["parse_gap"] = self.gap(1, "%s does not parse (%s); it may be truncated or partly overwritten" % (rel, A["error"]),
                      "Code after the damage point is missing or unreliable, so whatever it did must be rebuilt.",
                      ["git history of %s (git log -p -- %s)" % (rel, os.path.basename(rel)),
                       "an older copy or build of the project (CI artifacts, .pyc caches)", "ask the client"], files=[rel])
@@ -2264,6 +3080,7 @@ class Scan(object):
             present.add(base)
             parts = A["rel"].split("/")
             present.update(parts[:-1])
+        specs, want_names, want_mods = [], {}, {}   # gaps are made after the git lookup, in this same order
         for A in self.py_mods:
             rel, e = A["rel"], A["inv"]
             if A["star"]:
@@ -2292,7 +3109,8 @@ class Scan(object):
                            "stays 'reconstructed but untested' unless surviving input/output examples can check it."
                            if how == "called" else
                            "Code that reads it cannot run or be checked until its value is found.")
-                    self.gap(1, what, why, where, files=[rel])
+                    specs.append((1, what, why, where, [rel], ("name", name)))
+                    want_names.setdefault(name, []).append(rel)
                     e["missing"].append("%s `%s` (line%s %s)" % ("function" if how == "called" else "name", name,
                                                                   "s" if len(lns) > 1 else "",
                                                                   ", ".join(str(l) for l in lns[:8])))
@@ -2303,12 +3121,201 @@ class Scan(object):
                 if (top or "") in present or (level and not mod and all(nm in present for nm in names)):
                     continue
                 label = ("." * level) + mod
-                self.gap(2, "Module `%s` imported by %s (line %d) is not in the case files" % (label, rel, ln),
-                         "Everything %s takes from it (%s) is missing." % (rel, ", ".join(names) or "the module"),
-                         self.mention_places(top or names[0] if names else label, exclude=rel, word=True) +
-                         ["the project's repository or git history (git log --all -- '%s.py')" % (top or label),
-                          "an installed or older build of the project", "ask the client"], files=[rel])
+                specs.append((2, "Module `%s` imported by %s (line %d) is not in the case files" % (label, rel, ln),
+                              "Everything %s takes from it (%s) is missing." % (rel, ", ".join(names) or "the module"),
+                              self.mention_places(top or names[0] if names else label, exclude=rel, word=True) +
+                              ["the project's repository or git history (git log --all -- '%s.py')" % (top or label),
+                               "an installed or older build of the project", "ask the client"], [rel],
+                              ("module", top or label)))
+                want_mods.setdefault(top or label, []).append(rel)
                 e["missing"].append("module %s" % label)
+        found = self.git_history(want_names, want_mods)
+        for prio, what, why, where, files, key in specs:
+            self.gap(prio, what, why, found.get(key, []) + where, files=files)
+
+    # -- git history ------------------------------------------------------------
+    def git_history(self, names, mods):
+        """Read every .git folder and git bundle in the case through SafeGit. Records the newest commits (hash,
+        date, author name, subject) and the last committed version of code the case is missing: functions called
+        but defined nowhere, modules imported but absent, files tracked in git but missing, files that no longer
+        parse. Returns {("name" | "module", key): [where_to_look entries]} for the gaps."""
+        found = {}
+        srcs = [("dir", r, f) for r, f in self.git_dirs] + [("bundle", r, d) for r, d in self.git_bundles]
+        for i, (kind, rel, obj) in enumerate(srcs):
+            label = "git bundle" if kind == "bundle" else "git history"
+            if kind == "dir":
+                self.src_add("git repositories", 1, 0)
+            if i >= MAX_GIT_REPOS:
+                self.inv(rel, "%s, not scanned here: more than %d repositories in the case" % (label, MAX_GIT_REPOS))
+                continue
+            if not self.git:
+                e = self.inv(rel, "%s, not scanned here: git is not installed where the scanner ran" % label)
+                e["missing"].append("history not read")
+                self.gap(5, "The git history in %s was not read: git is not installed here" % rel,
+                         "Older versions of missing or damaged code may be in it; without it, code is rebuilt from "
+                         "other evidence even where the exact original survives.",
+                         ["rerun the scanner where git is installed",
+                          "ask the client for a git bundle (git bundle create repo.bundle --all)"], files=[rel])
+                continue
+            tmp = tempfile.mkdtemp(prefix="ctxgit")
+            try:
+                g = SafeGit(self.git, tmp)
+                if kind == "dir":
+                    g.copy_from(obj)
+                else:
+                    g.load_bundle(obj)
+                self.read_history(g, kind, rel, names, mods, found)
+                self.src["git repositories" if kind == "dir" else "git bundles"][1] += 1
+            except _Skip as ex:
+                self.inv(rel, "%s, not scanned here: %s" % (label, ex))
+            except (GitError, OSError, ValueError) as ex:
+                e = self.inv(rel, "%s, not scanned here: %s; search it for missing code with git log -S '<name>' "
+                             "and git log -p" % (label, short(ex, 120)))
+                e["missing"].append("history not read")
+                self.gap(5, "The git history in %s could not be read (%s)" % (rel, short(ex, 80)),
+                         "Older versions of missing or damaged code may be in it.",
+                         ["a fresh copy of the repository, or a git bundle (git bundle create repo.bundle --all)",
+                          "ask the client"], files=[rel])
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        return found
+
+    def git_commit(self, g, rev):
+        p = g.run("log", "-1", "--format=%H%x1f%ci%x1f%an%x1f%s", rev).strip().split("\x1f")
+        return (p + ["", "", "", ""])[:4] if p and p[0] else (rev, "", "", "")
+
+    def git_blob(self, g, rev, path, cap=2 * 1024 * 1024):
+        spec = "%s:%s" % (rev, path)
+        if int(g.run("cat-file", "-s", spec).strip() or 0) > cap:
+            return None
+        return g.run("cat-file", "blob", spec)
+
+    def git_code(self, g, rev, path, loc, what, conf, code):
+        h, when, who, subj = self.git_commit(g, rev)
+        f = self.frag("git:%s:%s" % (h, path), loc, "code", conf, "%s (commit %s, %s, %s: %s)\n%s" % (
+            what, h[:12], when[:10], who, short(subj, 100), clip(code)))
+        return f["fragment_id"], h, when[:10]
+
+    def read_history(self, g, kind, rel, names, mods, found):
+        n = int(g.run("rev-list", "--all", "--count").strip() or 0)
+        if not n:
+            raise _Skip("it holds no commits")
+        refs = [r for r in g.run("for-each-ref", "--format=%(refname)").split() if r]
+        e = self.inv(rel, "%s, read from a private copy of its objects and refs (no client config or hooks): "
+                     "%d commit(s), %d branch(es) or tag(s)" % ("git bundle" if kind == "bundle" else "git history",
+                                                                n, len(refs)))
+        log = g.run("log", "--all", "--date-order", "--no-textconv", "--no-ext-diff", "-n", str(MAX_GIT_COMMITS),
+                    "--format=%H%x1f%ci%x1f%an%x1f%s")
+        nc = 0
+        for line in log.splitlines():
+            p = line.split("\x1f")
+            if len(p) >= 4:
+                self.frag("git:%s" % p[0], "commit", "record", 0.9, "commit %s | %s | %s | %s" % (
+                    p[0][:12], p[1][:10], p[2], short(p[3], 140)))
+                nc += 1
+        self.src_add("git commits", n, nc)
+        e["found"].append("newest %d commit(s) recorded (hash, date, author name, subject)" % nc)
+        head = g.run("rev-parse", "--verify", "-q", "HEAD^{commit}", ok=(0, 1)).strip()
+        tips = dedupe(([head] if head else []) + [r for r in refs if r.startswith(("refs/heads/", "refs/tags/"))])[:20]
+        for name in sorted(names):
+            hit = self.git_find_def(g, name, tips)
+            if hit:
+                found.setdefault(("name", name), []).append(hit[0])
+                e["found"].append(hit[1])
+        for mod in sorted(mods):
+            if re.match(r"^[A-Za-z_]\w*$", mod):
+                hit = self.git_find_module(g, mod)
+                if hit:
+                    found.setdefault(("module", mod), []).append(hit[0])
+                    e["found"].append(hit[1])
+        if kind == "dir" and head:
+            self.git_worktree_losses(g, rel, e)
+
+    def git_find_def(self, g, name, tips):
+        """Last version of a Python def or class from history: the newest branch tip that still has it, else the
+        parent of the newest commit that changed its def line."""
+        rx = GIT_DEF % name
+
+        def grep(rev):
+            for line in g.run("grep", "-n", "-I", "-E", rx, rev, "--", "*.py", ok=(0, 1, 128)).splitlines():
+                m = re.match(r"^([^:]+):(.+?):(\d+):", line)
+                if m:
+                    return m.group(1), m.group(2), int(m.group(3))
+            return None
+        hit = next((x for x in (grep(t) for t in tips) if x), None)
+        if not hit:
+            for c in g.run("log", "--all", "--date-order", "-E", "-G" + rx, "--format=%H", "-n", "20", "--",
+                           "*.py").split():
+                hit = grep(c) or grep(c + "^")
+                if hit:
+                    break
+        if not hit:
+            return None
+        rev, path, ln = hit
+        src = self.git_blob(g, rev, path)
+        lines = (src or "").splitlines()
+        if not 0 < ln <= len(lines):
+            return None
+        a, b = python_block(lines, ln)
+        fid, h, when = self.git_code(g, rev, path, "line%d-%d" % (a, b), "last version of `%s` in git history" % name,
+                                     0.9 if rev in tips else 0.8, "\n".join(lines[a - 1:b]))
+        return ("git history: `%s` in %s at commit %s, %s (fragment %s)" % (name, path, h[:12], when, fid),
+                "`%s` recovered from git history (%s at commit %s, fragment %s)" % (name, path, h[:12], fid))
+
+    def git_find_module(self, g, mod):
+        out = g.run("log", "--all", "--date-order", "-n", "1", "--no-renames", "--format=%x1e%H", "--name-status",
+                    "--", ":(glob)**/%s.py" % mod, ":(glob)**/%s/__init__.py" % mod)
+        rec = [l for l in out.split("\x1e", 1)[-1].splitlines() if l.strip()] if "\x1e" in out else []
+        if len(rec) < 2:
+            return None
+        h = rec[0].strip()
+        status, path = (rec[1].split("\t", 1) + [""])[:2]
+        rev = h + "^" if status.startswith("D") else h
+        src = self.git_blob(g, rev, path)
+        if src is None:
+            return None
+        fid, h2, when = self.git_code(g, rev, path, "whole file", "last version of module `%s` in git history" % mod,
+                                      0.8, src)
+        return ("git history: %s at commit %s, %s (fragment %s)" % (path, h2[:12], when, fid),
+                "module `%s` recovered from git history (%s at commit %s, fragment %s)" % (mod, path, h2[:12], fid))
+
+    def git_worktree_losses(self, g, rel, e):
+        """Code files tracked at HEAD but missing from the case, and the committed version of files that no
+        longer parse. Hidden, credential and junk files are never pulled from history."""
+        root = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        pre = root + "/" if root else ""
+        present = {r[len(pre):] for r in self.walk_rels if r.startswith(pre)}
+        tracked = [p for p in g.run("ls-tree", "-r", "-z", "--name-only", "HEAD").split("\x00") if p]
+        tset = set(tracked)
+        for A in self.py_mods:
+            path = A["rel"][len(pre):] if A["rel"].startswith(pre) else None
+            if A["ok"] or path not in tset:
+                continue
+            src = self.git_blob(g, "HEAD", path)
+            if src is None:
+                continue
+            fid, h, when = self.git_code(g, "HEAD", path, "whole file", "committed version of %s, which does not "
+                                         "parse in the case" % path, 0.85, src)
+            e["found"].append("%s: committed version in fragment %s" % (path, fid))
+            if A.get("parse_gap"):
+                A["parse_gap"]["where_to_look"].insert(0, "git history: committed version of %s at commit %s, %s "
+                                                          "(fragment %s)" % (path, h[:12], when, fid))
+
+        def safe(p):
+            segs = p.split("/")
+            return (ext_of(p) in GIT_CODE_EXTS and not CREDENTIAL_FILE.match(segs[-1])
+                    and not any(s.startswith(".") or s.lower() in JUNK_DIRS or s.lower() in CREDENTIAL_DIRS
+                                or s.lower() == "quarantine" for s in segs))
+        lost = [p for p in tracked if p not in present and safe(p)]
+        for p in lost[:MAX_GIT_FILES]:
+            src = self.git_blob(g, "HEAD", p)
+            if src is None:
+                continue
+            fid, h, when = self.git_code(g, "HEAD", p, "whole file", "file tracked in git but missing from the case; "
+                                         "last committed version", 0.85, src)
+            e["missing"].append("%s is tracked in git but missing from the case (last committed version in %s)" % (p, fid))
+        if len(lost) > MAX_GIT_FILES:
+            e["missing"].append("%d more tracked code files are missing from the case" % (len(lost) - MAX_GIT_FILES))
 
     def mention_places(self, term, exclude=None, word=False):
         out = []
@@ -2549,7 +3556,8 @@ class Scan(object):
             if b in present or b in seen or b == os.path.basename(rel).lower():
                 continue
             seen.add(b)
-            self.gap(2, "%s is mentioned in %s (line %d) but is not in the case files" % (name, rel, ln),
+            self.gap(2, "%s is mentioned in %s (%s) but is not in the case files" % (
+                name, rel, self.locmaps.get(rel, {}).get(ln) or "line %d" % ln),
                      "The client referred to it, so it may hold figures, rules or code the rebuild needs.",
                      ["the client's past email threads (search '%s', check attachments)" % name,
                       "the client's shared drive or the folder the case came from", "ask the client"], files=[rel])
@@ -2561,6 +3569,19 @@ class Scan(object):
     def write(self):
         os.makedirs(self.out_dir, exist_ok=True)
         gaps = sorted(self.pending_gaps, key=lambda g: g["_prio"])
+        if len(gaps) > GAP_CAP:           # keep the gap ids inside Context's range: the rest become one summary gap
+            rest = gaps[GAP_CAP - 1:]
+            gaps = gaps[:GAP_CAP - 1] + [{
+                "what": "%d more gaps, lower priority than the ones above" % len(rest),
+                "why": "Context numbers at most %d gaps per pass. Found but not numbered: %s" % (
+                    GAP_CAP, short("; ".join(g["what"] for g in rest), 1500)),
+                "where_to_look": dedupe([w for g in rest for w in g["where_to_look"]])[:8], "status": "open",
+                "_prio": rest[0]["_prio"], "_files": sorted({f for g in rest for f in g["_files"]})}]
+        if self.fragments and "_more" in self.fragments[-1]:
+            over = self.fragments[-1]
+            over["confidence"] = 0.0
+            over["notes"] = ("Fragment ids are full (Context uses 001-%03d): %d more items cite this fragment. Each value "
+                             "and rule still names its own file and line in its source." % (FRAG_CAP, over.pop("_more")))
         for i, g in enumerate(gaps, 1):
             g["gap_id"] = "G-%s-%02d" % (self.num, i)
         for e in self.inventory:
@@ -2588,6 +3609,11 @@ class Scan(object):
             L.append("Model: %s (periods: %s)." % (self.model_rel, ", ".join(p for p, _ in self.model_periods) or "none found"))
         else:
             L.append("Model: none given or found, so no blank-cell or period checks were made.")
+        L += ["", "## Sources", "What the case holds, by kind (items seen; scanned when fewer were read)."]
+        for kind, (seen, scanned) in self.src.items():
+            L.append("- %s: %d%s" % (kind, seen, "" if scanned == seen else " seen, %d scanned" % scanned))
+        for kind, n in sorted(self.junk.items()):
+            L.append("- skipped, %s: %d" % (kind, n))
         L += ["", "## Files"]
         for e in self.inventory:
             line = "- **%s**: %s." % (e["file"], e["what"])
@@ -2616,6 +3642,18 @@ class Scan(object):
             for k in self.known_missing:
                 L.append("- %s, %s: \"%s\" (%s, %s)" % (k["label"], k["period"], short(k["text"], 120), k["fragment_id"],
                                                        k["source"]))
+        if self.not_scanned or self.not_read:
+            L += ["", "## Seen, not scanned",
+                  "The case holds more than %d files (--max-files), so only the files most relevant to the case "
+                  "(model labels and sheets, damaged cells, rules, client names, --terms) were scanned. These were "
+                  "seen but not opened; rerun with --terms or a higher --max-files to scan them." % self.max_files]
+            for r in self.not_scanned[:MAX_LISTED]:
+                L.append("- %s" % r)
+            if len(self.not_scanned) > MAX_LISTED:
+                L.append("- ... and %d more" % (len(self.not_scanned) - MAX_LISTED))
+            if self.not_read:
+                L.append("- files of types this tool does not read: %s" % ", ".join(
+                    "%s %d" % kv for kv in sorted(self.not_read.items())))
         L.append("")
         return "\n".join(L)
 
@@ -2654,15 +3692,21 @@ def main(argv=None):
     ap.add_argument("--case", required=True, help="case id, e.g. C-0001")
     ap.add_argument("--model", help="the damaged .xlsx, to align labels and periods")
     ap.add_argument("--out-dir", default="evidence", help="where to write the four outputs")
+    ap.add_argument("--max-files", type=int, default=MAX_FILES,
+                    help="in a big export, scan only this many of the files most relevant to the case (default %d); "
+                         "the rest are listed by name in inventory.md" % MAX_FILES)
+    ap.add_argument("--terms", default="", help='extra terms that make a file relevant, comma separated: '
+                                                '--terms "Acme,pricing tiers"')
     a = ap.parse_args(argv)
     if not os.path.isdir(a.case_dir):
         print("case dir not found: %s" % a.case_dir, file=sys.stderr)
         return 2
-    s = Scan(a.case_dir, a.case, a.model, a.out_dir)
+    s = Scan(a.case_dir, a.case, a.model, a.out_dir, max_files=a.max_files, terms=a.terms)
     r = s.run()
-    print("%s: %d files, %d fragments, %d values, %d reported, %d rules, %d known missing, %d open gaps -> %s" % (
+    print("%s: %d files, %d fragments, %d values, %d reported, %d rules, %d known missing, %d open gaps -> %s%s" % (
         s.case_id, r["files"], r["fragments"], r["values"], r["reported"], r["rules"], r["known_missing"], r["gaps"],
-        a.out_dir))
+        a.out_dir, " (%d more files seen, not scanned: see inventory.md)" % (len(s.not_scanned) + sum(
+            s.not_read.values())) if s.not_scanned or s.not_read else ""))
     return 0
 
 

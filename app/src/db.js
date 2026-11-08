@@ -162,12 +162,31 @@ export function makeDb(query) {
     return rows.length ? decode(rows[0]) : null;
   }
 
+  // Public detail for the projector: masked email, no raw verdict results (they may hold held-back values).
+  async function caseDetail(caseId) {
+    const [c, items, verdicts, events, counts] = await Promise.all([
+      query(`select case_id, client_email, kind, stage, retry_count, quote_usd, updated_at from cases where case_id = $1`, [caseId]),
+      query(`select item, label, cites from report_items where case_id = $1 order by item_id limit 200`, [caseId]).catch(() => []),
+      query(`select pass, outcome, retry_count, created_at from verdicts where case_id = $1 order by created_at desc, verdict_id desc limit 5`, [caseId]),
+      query(`select agent, stage, message, cost_usd, human_stepped_in, created_at from events where case_id = $1 order by created_at desc, event_id desc limit 30`, [caseId]),
+      query(`select (select count(*)::int from fragments where case_id = $1) as fragments,
+                    (select count(*)::int from gaps where case_id = $1) as gaps,
+                    (select count(*)::int from rules where case_id = $1) as rules`, [caseId]),
+    ]);
+    if (!c.length) return null;
+    const cost = events.reduce((s, e) => s + Number(e.cost_usd || 0), 0);
+    return decode({
+      ...c[0], client_email: maskEmail(c[0].client_email), cost,
+      counts: counts[0], report_items: items, verdicts: verdicts.map(decode), events: events.map(decode),
+    });
+  }
+
   async function health() {
     await query("select 1 as ok");
     return true;
   }
 
-  return { insert, patchCase, getCase, board, health };
+  return { insert, patchCase, getCase, caseDetail, board, health };
 }
 
 // The board is shown on a projector: hide most of each client address.

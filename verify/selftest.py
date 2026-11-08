@@ -46,7 +46,7 @@ def handoff_checks(man_a: dict) -> None:
     from verify import handoff
 
     tmp = Path(tempfile.mkdtemp(prefix="handoff_"))
-    old_env = {k: os.environ.get(k) for k in ("CC_URL", "CC_FALLBACK_DIR")}
+    old_env = {k: os.environ.get(k) for k in ("CC_URL", "CC_FALLBACK_DIR", "VERIFY_HIDDEN_DIR")}
     os.environ.pop("CC_URL", None)
     os.environ["CC_FALLBACK_DIR"] = str(tmp / "cc_records")
     try:
@@ -73,14 +73,15 @@ def handoff_checks(man_a: dict) -> None:
         check("handoff: reply uses contract fields",
               {"case_id", "stage", "status", "outputs", "question", "mismatches"} <= set(reply))
         check("handoff: output goes to the flat report folder",
-              reply["outputs"] == ["C-0001-report/validation_feedback.json"], reply["outputs"])
+              reply["outputs"][0] == "C-0001-report/validation_feedback.json"
+              and all(o.startswith("C-0001-report/") for o in reply["outputs"]), reply["outputs"])
         priv = json.loads(next((HIDDEN / "results" / "excel_a").glob("*.json")).read_text()) \
             if (HIDDEN / "results" / "excel_a").exists() else {}
         check("handoff: Rebuild rule ids are cited in the report",
               any("R-0001-03" in it.get("evidence", []) for it in priv.get("items", [])))
         check("handoff: engine manifest.json rule ids are cited too",
               any("R-0001-09" in it.get("evidence", []) for it in priv.get("items", [])))
-        recs = (tmp / "cc_records" / "verdicts.jsonl").read_text()
+        recs = (tmp / "out" / "cc_records" / "verdicts.jsonl").read_text()
         exp = json.loads((HIDDEN / "excel_a" / "expected.json").read_text())
         hidden_vals = {exp["historical"][c] for c in exp["damaged_cells"] if c in exp["historical"]}
         hidden_vals |= {v for sc in exp["scenarios"] for v in list(sc["expected"].values())[:20]}
@@ -88,9 +89,40 @@ def handoff_checks(man_a: dict) -> None:
               "withheld" in recs and not any(f'"{h}"' in recs for h in hidden_vals))
         check("handoff: no CC_URL is reported as NOT in Neon",
               "NOT in Neon" in reply["stored"].get("note", ""), reply.get("stored"))
-        items = (tmp / "cc_records" / "report_items.jsonl").read_text().splitlines()
+        items = (tmp / "out" / "cc_records" / "report_items.jsonl").read_text().splitlines()
         check("handoff: final pass writes labeled report items", len(items) > 5 and
               all(json.loads(x)["label"] in LABELS for x in items))
+
+        check("handoff: verdict record carries the outcome field",
+              all(json.loads(x).get("outcome") == "pass" for x in recs.splitlines()))
+        check("handoff: relay files listed for publishing to the report folder",
+              {"C-0001-report/verdicts.jsonl", "C-0001-report/report_items.jsonl",
+               "C-0001-report/events.jsonl", "C-0001-report/validation_feedback.json"} <= set(reply["outputs"])
+              and all(Path(p).exists() for p in reply["publish_from"].values()), reply["outputs"])
+
+        # a client workbook that is not one of the demo datasets: untested, not error, no retry
+        other = inc / "C-0009-rebuilt"
+        other.mkdir()
+        wb2 = openpyxl.Workbook()
+        wb2.active.title = "Sheet1"
+        wb2.active["A1"] = "Some client test sheet"
+        wb2.save(other / "model.xlsx")
+        r3 = handoff.handle({"case_id": "C-0009", "stage": "validation", "kind": "excel", "retry_count": 0,
+                             "files": ["C-0009-rebuilt/model.xlsx"]}, inc, tmp / "out9", write_cc=True)
+        check("handoff: unknown workbook -> untested, status done, escalate (no retry loop)",
+              r3["outcome"] == "untested" and r3["status"] == "done" and r3["next_action"] == retry.ESCALATE,
+              (r3["outcome"], r3["status"], r3["next_action"]))
+
+        # private suite lookup falls back to the agent's home or /home/*/validation_private
+        saved = os.environ.get("VERIFY_HIDDEN_DIR")
+        os.environ["VERIFY_HIDDEN_DIR"] = str(tmp / "nowhere")
+        found = handoff.locate_hidden()
+        check("handoff: private suite located even when VERIFY_HIDDEN_DIR points elsewhere",
+              found is not None and (found / "excel_a" / "expected.json").exists(), found)
+        if saved is None:
+            os.environ.pop("VERIFY_HIDDEN_DIR", None)
+        else:
+            os.environ["VERIFY_HIDDEN_DIR"] = saved
 
         bad = dict(req, files=["C-0001-rebuilt/model.xlsx"], retry_count=1)
         shutil.copy(FX / "excel_a" / "pasted_values.xlsx", reb / "model.xlsx")

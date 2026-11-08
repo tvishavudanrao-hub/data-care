@@ -77,7 +77,7 @@ def write_cc(v: Verdict, case_id: str, *, report_items: bool) -> dict:
     target = "app" if os.environ.get("CC_URL") else f"local fallback {os.environ.get('CC_FALLBACK_DIR', 'cc_records')}/"
     status["target"] = target
     try:
-        cc.post("verdicts", {"case_id": case_id, "pass": v.outcome == "pass",
+        cc.post("verdicts", {"case_id": case_id, "pass": v.outcome == "pass", "outcome": v.outcome,
                              "results": shared_results(v), "retry_count": v.retry_count})
         n = 0
         if report_items:

@@ -126,3 +126,13 @@ test("board page and health", async () => {
   assert.deepEqual(h, { ok: true, db: true, token_valid: true });
   assert.equal(maskEmail("anna@x.io"), "a***@x.io");
 });
+
+test("case detail is public and masks the email", async () => {
+  await call("POST", "/api/cases", { case_id: "C-7000", client_email: "someone@example.com", kind: "excel" });
+  const res = await call("GET", "/api/board/case/C-7000", undefined, null);
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  assert.equal(d.client_email, "s***@example.com");
+  assert.equal(d.counts.fragments, 0);
+  assert.equal((await call("GET", "/api/board/case/NOPE", undefined, null)).status, 404);
+});
