@@ -1,12 +1,14 @@
 {
-  "name": "codecare-app",
+  "name": "datacare-app",
   "private": true,
   "type": "module",
-  "description": "Code Care records API and live board (Neon).",
+  "description": "Data Care records API and live board (Neon).",
   "main": "worker.js",
   "scripts": {
     "dev": "node server.js",
-    "test": "node --test test/"
+    "dev:neon": "node --env-file=.env server.js",
+    "schema": "node --env-file=.env scripts/apply-schema.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0"

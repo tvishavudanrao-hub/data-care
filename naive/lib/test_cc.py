@@ -104,6 +104,20 @@ class CCEndToEnd(unittest.TestCase):
         code, _, err = self.cc("report-item", "--case", "C-0100", "--item", "x", "--label", "guessed", "--cites", "a")
         self.assertEqual(code, 2)  # argparse rejects labels outside the four
 
+    def test_verdict_outcomes(self):
+        self.ok("case-new", "--case", "C-0102", "--client-email", "v@x.io", "--kind", "code")
+        row = self.ok("verdict", "--case", "C-0102", "--outcome", "error", "--results", "[]", "--retry-count", "0")
+        self.assertEqual((row["pass"], row["outcome"]), (False, "error"))
+        row = self.ok("verdict", "--case", "C-0102", "--pass", "--results", "[]", "--retry-count", "1")
+        self.assertEqual((row["pass"], row["outcome"]), (True, "pass"))
+        code, _, err = self.cc("verdict", "--case", "C-0102", "--pass", "--outcome", "error", "--results", "[]",
+                               "--retry-count", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("contradicts", err)
+        code, _, err = self.cc("verdict", "--case", "C-0102", "--results", "[]", "--retry-count", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("needs --pass", err)
+
     def test_fallback_without_url(self):
         with tempfile.TemporaryDirectory() as d:
             code, out, err = self.cc("event", "--agent", "context", "--stage", "context", "--cost", "0.05",
@@ -113,6 +127,24 @@ class CCEndToEnd(unittest.TestCase):
                 row = json.loads(f.readline())
             self.assertEqual(row["agent"], "context")
             self.assertEqual(row["cost_usd"], 0.05)
+            self.assertIn("NOT LOGGED", err)
+            self.assertTrue(json.loads(out)["_not_logged"])
+            code, _, err = self.cc("event", "--agent", "x", "--stage", "y", url=False,
+                                   extra_env={"CC_FALLBACK_DIR": d, "CC_REQUIRE_URL": "1"})
+            self.assertEqual(code, 1)
+            self.assertIn("NOT LOGGED", err)
+
+    def test_case_get(self):
+        self.ok("case-new", "--case", "C-0103", "--client-email", "rm@x.io", "--kind", "excel")
+        self.ok("case-stage", "--case", "C-0103", "--stage", "validation", "--retry-count", "2")
+        row = self.ok("case-get", "--case", "C-0103")
+        self.assertEqual((row["stage"], row["retry_count"]), ("validation", 2))
+        code, _, err = self.cc("case-get", "--case", "C-4040")
+        self.assertEqual(code, 1)
+        self.assertIn("404", err)
+        code, _, err = self.cc("case-get", "--case", "C-0103", url=False)
+        self.assertEqual(code, 1)
+        self.assertIn("needs CC_URL", err)
 
     def test_retries_then_gives_up(self):
         start = time.time()

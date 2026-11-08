@@ -29,7 +29,7 @@ export const TABLES = {
   },
   verdicts: {
     pk: null,
-    cols: { case_id: "", pass: "::boolean", results: "::jsonb", retry_count: "::int" },
+    cols: { case_id: "", pass: "::boolean", results: "::jsonb", retry_count: "::int", outcome: "" },
     required: ["case_id", "pass", "results", "retry_count"],
   },
   report_items: {
@@ -134,7 +134,7 @@ export function makeDb(query) {
               group by c.case_id order by c.created_at`),
       query(`select count(*)::int as n from events where human_stepped_in`),
       query(`select count(*)::int as n from checkups`),
-      query(`select case_id, pass, retry_count, created_at from verdicts order by created_at desc, verdict_id desc limit 1`),
+      query(`select case_id, pass, outcome, retry_count, created_at from verdicts order by created_at desc, verdict_id desc limit 1`),
       query(`select case_id, agent, stage, message, cost_usd, human_stepped_in, created_at
                from events order by created_at desc, event_id desc limit 12`),
       query(`select label, count(*)::int as n from report_items group by label`),
@@ -153,12 +153,21 @@ export function makeDb(query) {
     };
   }
 
+  async function getCase(caseId) {
+    const rows = await query(
+      `select c.*, coalesce((select sum(cost_usd) from events e where e.case_id = c.case_id), 0) as cost
+         from cases c where c.case_id = $1`,
+      [caseId],
+    );
+    return rows.length ? decode(rows[0]) : null;
+  }
+
   async function health() {
     await query("select 1 as ok");
     return true;
   }
 
-  return { insert, patchCase, board, health };
+  return { insert, patchCase, getCase, board, health };
 }
 
 // The board is shown on a projector: hide most of each client address.

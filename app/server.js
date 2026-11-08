@@ -37,7 +37,7 @@ export async function startServer({ port = 8787, env = process.env } = {}) {
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
   });
-  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+  await new Promise((resolve) => server.listen(port, env.HOST || "127.0.0.1", resolve));
   return server;
 }
 
@@ -45,5 +45,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 8787);
   const server = await startServer({ port });
   const where = process.env.NEON_DATABASE_URL ? "Neon" : "an in-memory database";
-  console.log(`Code Care app on http://127.0.0.1:${server.address().port} using ${where}`);
+  console.log(`Data Care app on http://127.0.0.1:${server.address().port} using ${where}`);
 }

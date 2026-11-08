@@ -1,5 +1,5 @@
--- Code Care records store (Neon). Schema from the "Code Care: full build spec v2" board post, section 5.
--- Agents never connect to this database: they write through the Code Care app's records API (naive/lib/cc.py).
+-- Data Care records store (Neon). Schema from the "Code Care: full build spec v2" board post, section 5.
+-- Agents never connect to this database: they write through the Data Care app's records API (naive/lib/cc.py).
 
 create table cases (
   case_id text primary key,
@@ -43,6 +43,8 @@ create table verdicts (
   pass boolean not null,
   results jsonb not null,  -- [{example_id, expected, actual}]
   retry_count int not null,
+  outcome text check (outcome in ('pass','fail','error','untested')),  -- added for Validation: error/untested are not plain fails
+
   created_at timestamptz not null default now()
 );
 create table report_items (

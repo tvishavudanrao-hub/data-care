@@ -1,4 +1,4 @@
-// Code Care app: records API for the agents plus the live board. Fetch-standard, so it runs as a
+// Data Care app: records API for the agents plus the live board. Fetch-standard, so it runs as a
 // Worker (worker.js) or under Node (server.js) with the same code.
 import { TABLES, InputError } from "./db.js";
 import { BOARD_HTML } from "./board.js";
@@ -43,10 +43,18 @@ export async function handle(request, env, db) {
 
     if (!path.startsWith("/api/")) return json(404, { error: "not found" });
 
-    // Everything below writes, and needs the shared token.
+    // Everything below needs the shared token.
     if (!env.CC_API_TOKEN) return json(503, { error: "CC_API_TOKEN is not configured on the app" });
     if (!sameToken(request.headers.get("x-cc-token"), env.CC_API_TOKEN)) {
       return json(401, { error: "missing or wrong x-cc-token" });
+    }
+
+    const parts = path.split("/").filter(Boolean); // ["api", table, id?]
+
+    // Read one case back (stage, retry_count, cost): token-only because it shows the full client email.
+    if (method === "GET" && parts.length === 3 && parts[1] === "cases") {
+      const row = await db.getCase(decodeURIComponent(parts[2]));
+      return row ? json(200, row) : json(404, { error: `case ${parts[2]} not found` });
     }
 
     let body;
@@ -56,7 +64,6 @@ export async function handle(request, env, db) {
       return json(400, { error: "body must be JSON" });
     }
 
-    const parts = path.split("/").filter(Boolean); // ["api", table, id?]
     if (method === "POST" && parts.length === 2 && parts[1] in TABLES) {
       return json(201, await db.insert(parts[1], body));
     }
