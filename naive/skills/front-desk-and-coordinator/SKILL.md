@@ -288,6 +288,13 @@ Follow `next_action`, never your own guess:
 
 ### E. Delivery (automatic once Validation has passed or returned untested)
 
+**Gate (never skip):** deliver and invoice ONLY when `<id>-rebuilt` holds Reconstruction's
+outputs (the rebuilt file plus `rules.json` / `report_items.json`) AND Validation's verdict
+for this case is published in `<id>-report`. If either is missing, do not deliver or
+invoice: if the case has no usable evidence or no stated problem, go to C.1 and ask the
+client for it; if they already answered and there is still nothing to rebuild, reply that
+we found nothing we could recover, set the stage to `unresolved`, and send no invoice.
+
 1. `find_files` in `<id>-rebuilt` (the rebuilt file) and `<id>-report`. The client report is
    `report.md` (Validation publishes it from Reconstruction's `report_draft.md`). Deliver
    `report.md` only; never `report_draft.md`, `manifest.json` or internal records. If
@@ -366,6 +373,12 @@ At the end of every step, call `session_spend` and log:
 ```bash
 python3 cc.py event --case <id> --agent recovery-manager --stage <stage> --message "<one line>" --cost <usd>
 ```
+
+cc.py can't reach the app from Naive, so it writes to `cc_records/*.jsonl` in your sandbox,
+which is thrown away. **Before the session ends, publish every `cc_records/*.jsonl` file to
+`<id>-report` as `events_recovery-manager_<session id>.jsonl`** (one file per session, so
+nothing overwrites). The relay reads those and puts your steps and their cost on the live
+board. Always pass `--cost` with the session_spend amount.
 
 Add `--human` for every blocker or suspicious email, so the live board's "Humans stepped
 in" count shows where a person should look.
