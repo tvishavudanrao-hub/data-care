@@ -50,10 +50,15 @@ import urllib.request
 
 API = "https://api.agentmail.to/v0"
 RECOVERY_MANAGER = "agt_hy7jf2c1n0asqa3wrfna3742yb"
+# The client inbox is datacare-recover@ (2026-11-08). The old codecare-recover@ is still
+# watched so replies on threads opened there (C-0001..C-0003) keep arriving; the clinic is
+# retired and no longer watched.
 INBOXES = {
+    "datacare-recover@agentmail.to": "recover",
     "codecare-recover@agentmail.to": "recover",
-    "codecare-clinic@agentmail.to": "clinic",
 }
+# Every address that is ours: mail from these is our own outgoing copy, never a new case.
+OWN_ADDRESSES = set(INBOXES) | {"codecare-clinic@agentmail.to"}
 # Our own fake-supplier inboxes (trace-back demo). Mail FROM these into the recover inbox is
 # a supplier reply, not our own outgoing copy. Listed here only once Anna has created them.
 SUPPLIERS = {
@@ -61,7 +66,7 @@ SUPPLIERS = {
     "datacare-supplier-packer@agentmail.to",
     "datacare-supplier-distributor@agentmail.to",
 }
-SEARCH_INBOXES = ("codecare-recover@agentmail.to",)  # where the client's old mail lives
+SEARCH_INBOXES = ("datacare-recover@agentmail.to", "codecare-recover@agentmail.to")  # client's old mail
 MAX_SEARCH_HITS = 10
 DONE_LABEL = "dc-processed"
 SESSION_BUDGET_USD = "3"  # Andrei and Balthazar OKed $3 per run (2026-11-08)
@@ -199,7 +204,7 @@ def handle(key: str, inbox: str, kind: str, item: dict, dry_run: bool) -> None:
 
     if sender in SUPPLIERS:
         kind = "supplier"
-    elif sender in INBOXES:  # our own outgoing copies: never loop on ourselves
+    elif sender in OWN_ADDRESSES:  # our own outgoing copies: never loop on ourselves
         if not dry_run:
             am("PATCH", f"/inboxes/{q(inbox)}/messages/{q(msg_id)}", key, body={"add_labels": [DONE_LABEL]})
         return
