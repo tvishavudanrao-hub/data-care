@@ -378,10 +378,10 @@ multiagent:
       version: 3
     - type: agent
       id: agt_zv2syj3wxd7nf18v2yepvbqe58
-      version: 26
+      version: 38
     - type: agent
       id: agt_ywyxza1a11d5kxv0svbm869fj2
-      version: 28
+      version: 39
     - type: agent
       id: agt_sma53s33ya0k45kzrxsk6fj3ss
       version: 3
