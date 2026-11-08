@@ -25,3 +25,6 @@ A session that starts with `WEBSITE TICKET APPROVED` means the client approved t
    ```
    cc.py event --case <case_id> --agent recovery-manager --stage intake --message "approved on website; <n> files from Google Drive"
    ```
+6. **More files later.** A session that starts with `WEBSITE TICKET MORE FILES` means the client connected another account (for example Dropbox after Google Drive) for a ticket that's already approved. Find the case for this `ticket_id` in `index.json`, move the new files into its `<case_id>-incoming` folder, and send them to Forensics. **Never open a second case for the same ticket.** If no case is found yet (the first session is still running), wait for your next run, then add them.
+
+The message's `source` says which storage the files came from: Google Drive, Microsoft 365 / OneDrive, Dropbox or GitHub. Use it wherever this section says "Google Drive".
