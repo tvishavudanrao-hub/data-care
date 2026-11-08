@@ -375,7 +375,7 @@ multiagent:
   agents:
     - type: agent
       id: agt_zycyv1my96y98p3ptj64qa0mbf
-      version: 3
+      version: 4
     - type: agent
       id: agt_zv2syj3wxd7nf18v2yepvbqe58
       version: 51
