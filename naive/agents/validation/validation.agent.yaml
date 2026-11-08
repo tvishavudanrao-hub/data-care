@@ -4,7 +4,7 @@
 #   - web_fetch, web_search, crm.read, open_panel (not needed; leak risk around the hidden suite)
 #   - handoffs to Reconstruction: replies go to Recovery Manager, which owns the retry loop
 #     (front-desk-and-coordinator skill, section D) and forwards the limited feedback.
-# Model and budget are kept exactly as exported. APPLIED to Naive on 2026-11-08 as version 9
+# Model and budget are kept exactly as exported. APPLIED to Naive on 2026-11-08 (version 9; board tools added in version 13)
 # (naive agent update agt_sma53s33ya0k45kzrxsk6fj3ss --file ...). The Recovery Manager roster still
 # pins Validation v3 until Anna re-saves it. Budget ($1.00/month, $0.50/task) may be too low for test runs: ask the
 # team before raising it.
@@ -77,6 +77,12 @@ tools:
       enabled: true
       permission: allow
     fetch_file:
+      enabled: true
+      permission: allow
+    board_read:
+      enabled: true
+      permission: allow
+    board_write:
       enabled: true
       permission: allow
     find_files:
