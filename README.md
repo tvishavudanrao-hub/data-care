@@ -19,13 +19,14 @@ A second company with a **different** discount rule shows the agents aren't tune
 
 | Agent | What it does | In this repo |
 |---|---|---|
-| Recovery Manager (Coordinator) | Owns each case, hands off stages, runs the rebuild-and-check loop (3 retries), escalates to a human | not yet |
-| Client-facing (Comms) | Intake, quote, questions to the client, status updates | not yet |
-| Forensics / Salvage | Scans and quarantines first, never runs client files, extracts fragments | not yet |
-| Context | Hunts surviving evidence and maps missing item → source → method | `naive/agents/context/` |
+| Recovery Manager (Coordinator) | Owns each case: intake, quote, hand-offs, the rebuild-and-check loop (3 retries) and delivery | `naive/agents/recovery-manager/`, `naive/skills/front-desk-and-coordinator/` |
+| Client-facing (Comms) | Intake, quote, questions to the client, status updates | Part of the Recovery Manager (`naive/lib/quote.py`) |
+| Forensics / Salvage | Scans and quarantines first, never runs client files, extracts fragments | `naive/agents/forensics/`, `naive/skills/forensics-scanner/` |
+| Context | Hunts surviving evidence and maps missing item → source → method | `naive/agents/context/`, `naive/skills/context-evidence/` |
+| Mail Scout | Searches the client inboxes for the figures, rules and files a case is missing; reads mail only, never sends | `naive/agents/mail-scout/`, `naive/skills/mail-scout/` |
 | Reconstruction | Rebuilds formulas and code from evidence; asks the client when two readings fit | `naive/agents/reconstruction/`, `naive/skills/reconstruction-toolkit/` |
 | Validation | Checks rebuilds against private held-out tests, never repairs them, returns limited feedback | `verify/`, `naive/agents/validation/` |
-| Deliverable | Packages the result, report and invoice, waits for human approval | not yet |
+| Deliverable | Packages the result, report and invoice for the client | Part of the Recovery Manager |
 
 Agents pass structured messages (`{case_id, stage, kind, files, note}`) and share files through the Naive file library in one flat folder per case and stage (`C-0001-incoming`, `C-0001-rebuilt`, `C-0001-report`, ...), because folder names cannot contain "/". Shared tools live in the folder `tools`. See `docs/codecare-contracts.md`.
 
@@ -36,17 +37,17 @@ Agents pass structured messages (`{case_id, stage, kind, files, note}`) and shar
 | `data/public/` | Synthetic demo evidence: two Excel companies, the invoicing case and a harmless scanner test file | Tvisha |
 | `data/generate.py` | Seeded generator for that evidence (`--check` proves it reproduces exactly) | Tvisha |
 | `verify/` | Validation harness: recalculates workbooks with changed inputs, compares money to the cent, labels each item | Tvisha |
-| `naive/agents/*/` | Naive agent configs: Context and Reconstruction (exported), Validation (written, not deployed) | Balthazar, Tvisha |
-| `naive/skills/` | Agent skills: the Reconstruction toolkit and the Validation harness | Balthazar, Tvisha |
-| `naive/lib/` | Tools agents run in their sandboxes: `backtest.py`, `probe_diff.py`, `reconcile.py`, and `cc.py` (writes case records) | Balthazar, Andy |
-| `app/`, `db/schema.sql` | Code Care app: records API plus the live board, on Neon | Andy |
+| `naive/agents/*/` | Naive agent configs for the six case agents: Recovery Manager, Forensics, Context, Mail Scout, Reconstruction, Validation | Team |
+| `naive/skills/` | Agent skills: coordinator, forensics scanner, context evidence, Mail Scout, reconstruction toolkit, Excel formula engine, validation harness, self-audit | Team |
+| `naive/lib/` | Tools agents run in their sandboxes: `formula_infer.py`, `backtest.py`, `probe_diff.py`, `reconcile.py`, the forensics scanners, `quote.py`, `cc.py` (writes case records) and `sync_records.py` (the records relay) | Team |
+| `app/`, `db/schema.sql`, `web/` | Data Care app: records API, live board, case detail and ticket intake, on Neon | Andy |
 | `tools/board`, `docs/agent-board.md` | Team message board for our coding agents | template |
 
 ## Try it
 
 These run locally and were checked on the current code.
 
-The Code Care app (records API and board) runs on an in-memory database:
+The Data Care app (records API and board) runs on an in-memory database:
 
 ```bash
 cd app && npm install
@@ -91,12 +92,12 @@ python -m verify.selftest
 | Demo data, companies A and B plus the invoicing case | Done, reproducible |
 | Validation harness, Excel case | Works locally against known test candidates. A correct model passes. A wrong discount rule, pasted values, an invented number, and company A's rules applied to company B all fail. |
 | Validation harness, code case | Static safety checks work. Running the rebuilt code waits on a Naive sandbox. |
-| Validation ↔ agents hand-off, and records via `cc.py` | In review ([PR 5](https://github.com/tvishavudanrao-hub/data-care/pull/5)). Tested against the app's in-memory database. |
-| Code Care app and records client | Tests pass locally (API 5/5, `cc.py` 4/4). Not yet deployed on Naive or connected to Neon. |
-| Context and Reconstruction agents | Configs exported. The Excel tools the toolkit names (`context_scan.py`, `formula_infer.py`) are not in the repo yet. |
-| Reconstruction `backtest.py` and the invoicing dataset | Not wired together yet. They expect different invoice columns. |
-| Recovery Manager, Comms, Forensics, Deliverable | Not in the repo yet |
-| End-to-end run on Naive | Not done yet |
+| Validation ↔ agents hand-off, and records via `cc.py` | Live. Validation logs a verdict and one report item per cell. |
+| Data Care app and records client | Live on Naive: board, case detail and ticket form, on Neon. App tests pass (10/10). |
+| Context and Reconstruction agents | Live on Naive. Their tools are in `naive/lib/` and in the Naive file library folder `tools/`. |
+| Reconstruction `backtest.py` and the invoicing dataset | Wired. The code case rebuilt the invoicing function and matched every readable invoice to the cent. |
+| Recovery Manager, Forensics, Mail Scout | Live on Naive. The Recovery Manager also handles Comms and delivery: quote, the client's APPROVE, then the report and invoice. |
+| End-to-end run on Naive | Done on live cases, from the client's email to delivery. C-0003 (Alderbank) passed Validation on the first try. |
 
 ## Safety rules we hold to
 
@@ -107,6 +108,6 @@ python -m verify.selftest
 
 ## Team
 
-Tvisha Vudanrao (@tvishavudanrao-hub): demo data, Validation · Balthazar Sauquet (@balthyZart): Context, Reconstruction · Andrei Jacques (@andrei-jacques): Code Care app, Neon · Anna Liu (@annathebest-creator) · NWCodeStack (@NWCodeStack)
+Tvisha Vudanrao (@tvishavudanrao-hub): demo data, Validation · Balthazar Sauquet (@balthyZart): Context, Reconstruction · Andrei Jacques (@andrei-jacques): Data Care app, Neon · Anna Liu (@annathebest-creator): Recovery Manager · NWCodeStack (@NWCodeStack): Forensics, team lead
 
 All companies, people and numbers in the demo data are synthetic.

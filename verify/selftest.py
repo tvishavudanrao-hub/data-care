@@ -61,6 +61,9 @@ def handoff_checks(man_a: dict) -> None:
              "evidence": ["F-0001-020"], "alternatives": [], "status": "reconstructed and tested"}]))
         (reb / "report_items.json").write_text(json.dumps([
             {"item": "Model!F12 (Operating expenses, Q1 2026)", "label": "unresolved", "cites": ["G-0001-01"]}]))
+        rep = inc / "C-0001-report"
+        rep.mkdir()
+        (rep / "report_draft.md").write_text("# Draft from Reconstruction\nDRAFT-BODY-MARKER\n")
         req = {"case_id": "C-0001", "stage": "validation", "kind": "excel", "retry_count": 0,
                "files": ["C-0001-rebuilt/model.xlsx", "C-0001-rebuilt/rules.json",
                          "C-0001-rebuilt/report_items.json", "C-0001-rebuilt/manifest.json"]}
@@ -96,6 +99,13 @@ def handoff_checks(man_a: dict) -> None:
         check("handoff: one report line per cell, matching the label counts (board = report)",
               len(items) == sum(counts.values()) == 109 and counts["recovered"] == 27 and counts["unresolved"] == 1,
               (len(items), counts))
+        rpt = Path(reply["publish_from"]["C-0001-report/report.md"]).read_text()
+        check("handoff: pass publishes report.md (Validation section + Reconstruction's draft)",
+              "C-0001-report/report.md" in reply["outputs"] and "## Independent validation" in rpt
+              and "DRAFT-BODY-MARKER" in rpt and "reconstructed and tested: 81" in rpt)
+        check("handoff: report.md lists unresolved items and holds no hidden values",
+              "Model!F12 (Operating expenses, Q1 2026)" in rpt and not any(f" {h} " in rpt or f"|{h}|" in rpt
+                                                                          for h in hidden_vals if len(h) > 4))
         check("handoff: per-cell lines name the cell, row and quarter",
               any(json.loads(x)["item"] == "Model!C7 (Volume discount, Q2 2025)" for x in items))
 
@@ -115,6 +125,8 @@ def handoff_checks(man_a: dict) -> None:
         wb2.save(other / "model.xlsx")
         r3 = handoff.handle({"case_id": "C-0009", "stage": "validation", "kind": "excel", "retry_count": 0,
                              "files": ["C-0009-rebuilt/model.xlsx"]}, inc, tmp / "out9", write_cc=True)
+        check("handoff: no draft -> report.md still published from Validation's own results",
+              "C-0009-report/report.md" in r3["outputs"] and any("report_draft.md not found" in x for x in r3["reasons"]))
         check("handoff: unknown workbook -> untested, status done, escalate (no retry loop)",
               r3["outcome"] == "untested" and r3["status"] == "done" and r3["next_action"] == retry.ESCALATE,
               (r3["outcome"], r3["status"], r3["next_action"]))
@@ -135,6 +147,8 @@ def handoff_checks(man_a: dict) -> None:
         r2 = handoff.handle(dict(bad, dataset="excel_a"), inc, tmp / "out", write_cc=True)
         check("handoff: failing candidate -> failed reply, returned via Recovery Manager",
               r2["status"] == "failed" and r2["next_action"] == retry.RETURN and r2["mismatches"])
+        check("handoff: a failed attempt sent back for a retry publishes no report.md",
+              not any(o.endswith("/report.md") for o in r2["outputs"]))
         check("handoff: mismatch list carries no expected values",
               all(set(m) == {"item_id", "label", "status", "failed_check_tags", "failed_checks"}
                   for m in r2["mismatches"]))

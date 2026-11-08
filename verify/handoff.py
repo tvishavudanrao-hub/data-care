@@ -43,6 +43,8 @@ from verify import retry
 
 CELL = re.compile(r"(Model|Assumptions)!\$?([A-J])\$?(\d+)")
 FEEDBACK_NAME = "validation_feedback.json"
+REPORT_NAME = "report.md"          # the client report the Recovery Manager delivers (skill v24, section E)
+DRAFT_NAME = "report_draft.md"     # Reconstruction's draft, published to <case_id>-report
 
 
 def report_folder(case_id: str) -> str:
@@ -175,6 +177,56 @@ def _untested_unknown(req: dict, meta: dict) -> "Verdict":
     return v
 
 
+OUTCOME_TEXT = {
+    "pass": "Passed. The rebuilt file reproduces the original's surviving numbers and behaves the same when its "
+            "inputs change, on checks the rebuild never saw.",
+    "untested": "Not tested. We hold no independent test data for this file, so its behaviour is untested. "
+                "Everything rebuilt is labelled reconstructed but untested.",
+    "fail": "Not fully verified. Some items did not pass our checks; they are labelled unresolved below and are "
+            "not delivered as fact.",
+    "error": "Not verified. Our check could not run on this file; nothing in it is delivered as tested.",
+}
+
+
+def build_report(v, case_id: str, draft: str | None) -> str:
+    """report.md: Validation's section first, then Reconstruction's draft. No hidden values."""
+    counts = v.counts()
+    unresolved = [ci for ci in v.cell_items() if ci["label"] == "unresolved"]
+    reasons = {it.item_id: it.reason for it in v.items}
+    lines = [f"# Recovery report: {case_id}", "", "## Independent validation", "",
+             OUTCOME_TEXT.get(v.outcome, OUTCOME_TEXT["error"]), "",
+             "Items by label, as checked by Validation:", ""]
+    lines += [f"- {label}: {n}" for label, n in counts.items()]
+    lines += ["", "A pass means the rebuilt file behaves like the original under all our checks. It does not prove "
+              "every formula or line was recovered word for word. Nothing is guessed: anything without a surviving "
+              "source stays unresolved.", ""]
+    if unresolved:
+        lines += ["Unresolved:", ""]
+        for ci in unresolved[:40]:
+            why = next((r for k, r in reasons.items() if ci["item"].startswith(k) or k in ci["item"]), "")
+            lines.append(f"- {ci['item']}" + (f": {why}" if why else ""))
+        if len(unresolved) > 40:
+            lines.append(f"- and {len(unresolved) - 40} more")
+        lines.append("")
+    if v.outcome != "pass":
+        lines += ["Where the report below and this section disagree, this section's labels stand.", ""]
+    lines += ["---", ""]
+    if draft:
+        lines.append(draft.strip())
+    else:
+        lines += ["## Items", "", "| Item | Label |", "|---|---|"]
+        lines += [f"| {ci['item']} | {ci['label']} |" for ci in v.cell_items()]
+    return "\n".join(lines) + "\n"
+
+
+def _find_draft(req: dict, files: list[Path], files_root: Path) -> Path | None:
+    for f in files:
+        if f.name == DRAFT_NAME and f.exists():
+            return f
+    p = files_root / report_folder(req["case_id"]) / DRAFT_NAME
+    return p if p.exists() else None
+
+
 def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dict:
     req = normalise(req)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -260,6 +312,18 @@ def handle(req: dict, files_root: Path, out_dir: Path, *, write_cc: bool) -> dic
             reply["publish_from"] = {f"{report_folder(req['case_id'])}/{p.name}": str(p)
                                      for p in sorted(cc_dir.glob("*.jsonl"))}
             reply["publish_from"][f"{report_folder(req['case_id'])}/{FEEDBACK_NAME}"] = str(out_dir / FEEDBACK_NAME)
+    # The client report, only when the case is ready to deliver (never on a fail sent back for a retry).
+    deliverable = v.next_action in (retry.DELIVER, retry.ESCALATE, retry.BLOCKED) or v.outcome == "untested"
+    if deliverable:
+        draft_path = _find_draft(req, files, files_root)
+        draft = draft_path.read_text(errors="replace") if draft_path else None
+        (out_dir / REPORT_NAME).write_text(build_report(v, req["case_id"], draft))
+        key = f"{report_folder(req['case_id'])}/{REPORT_NAME}"
+        reply["outputs"].append(key)
+        reply.setdefault("publish_from", {f"{report_folder(req['case_id'])}/{FEEDBACK_NAME}": str(out_dir / FEEDBACK_NAME)})
+        reply["publish_from"][key] = str(out_dir / REPORT_NAME)
+        if not draft:
+            reply["reasons"].append("report_draft.md not found; report.md was built from Validation's own results")
     return reply
 
 
