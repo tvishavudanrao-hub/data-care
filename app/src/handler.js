@@ -2,6 +2,7 @@
 // Worker (worker.js) or under Node (server.js) with the same code.
 import { TABLES, InputError } from "./db.js";
 import { BOARD_HTML } from "./board.js";
+import { handleSite } from "./site/site.js";
 import { handleTickets, sqlTicketStore } from "./tickets/tickets.js";
 import { naiveSessionStarter } from "./tickets/naive.js";
 // Copies of web/connectors (the deploy only uploads app/). Keep in sync: npm run check-copies.
@@ -35,6 +36,9 @@ export async function handle(request, env, db) {
   const method = request.method;
 
   try {
+    // Website pages (app/src/site): home at /, the board at /board, /case, /download, favicon.
+    const site = handleSite(request);
+    if (site) return site;
     // Client connects their storage read-only (web/connectors/README.md). Off until configured:
     // without CONNECTOR_KEY, PUBLIC_BASE_URL and one provider's keys these pages say "not switched on yet".
     if (path.startsWith("/connect") || path === "/api/connectors/revoke-expired") {
