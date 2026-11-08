@@ -158,7 +158,12 @@ wait 20 seconds (`sleep 20` in bash), then read the newest index again. Send ONL
 race: do not send, log "lost send claim to <id>", and end. (Two sessions can wake for one
 case at the same moment; this stops both of them from sending.) Never remove a marker, even if the send fails (a
 failed send is logged and left for a person to see; a duplicate email is worse than a
-missing one). The same rule applies when another session, a board card or the backstop
+missing one). **A marker only counts as sent once it is confirmed:** right after a send
+succeeds, store the returned message id in `sent_ids.<marker>` and publish the index. If a
+marker has a `claims` entry but no `sent_ids` entry and the claim is more than 10 minutes
+old (record `claimed_at` with the claim), that session died before sending: replace the
+claim with yours and send once. Never mark a case `delivered` without `sent_ids` for its
+delivery emails. The same rule applies when another session, a board card or the backstop
 wakes you for a case that is already being handled.
 
 `awaiting` is what the case waits for while `waiting_client`: `"quote"` (the client's
@@ -346,8 +351,9 @@ we found nothing we could recover, set the stage to `unresolved`, and send no in
    - **Email 2, marker `delivery-file`** (`kind: delivery`): attach the rebuilt file only.
      Title e.g. "Your rebuilt file". One short paragraph saying this is the file promised
      in the previous email. No `callout`.
-4. If `delivery` is already in `sent` but `delivery-file` is not, send only Email 2. If both
-   are in `sent`, send nothing: set the stage to `delivered` and log it.
+4. If `sent_ids` has `delivery` but not `delivery-file`, send only Email 2. If `sent_ids` has
+   both, send nothing: set the stage to `delivered` and log it. If a marker is claimed with
+   no `sent_ids`, follow the 10-minute rule above; never set `delivered` on a claim alone.
 5. Right after EACH send succeeds, record it in the index and publish it, before anything
    else, in case the session is cut off after a large send. Set the stage to `delivered`,
    `awaiting: null` only after Email 2, then log the event.
