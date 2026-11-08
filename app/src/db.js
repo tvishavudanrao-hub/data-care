@@ -186,7 +186,7 @@ export function makeDb(query) {
     return true;
   }
 
-  return { insert, patchCase, getCase, caseDetail, board, health };
+  return { insert, patchCase, getCase, caseDetail, board, health, query };
 }
 
 // The board is shown on a projector: hide most of each client address.
