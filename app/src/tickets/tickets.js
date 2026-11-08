@@ -31,7 +31,7 @@ import { naiveSessionStarter } from "./naive.js";
 export const KINDS = ["excel", "code", "other"];
 export const ENVIRONMENTS = ["excel_desktop_windows", "excel_desktop_mac", "excel_web", "google_sheets",
   "codebase", "other", ""];
-export const STATUSES = ["new", "quoted", "in_progress", "closed"];
+export const STATUSES = ["new", "quoted", "approved", "in_progress", "closed"];
 const MAX_BODY_BYTES = 20_000;
 const EMAIL = /^[^\s@<>"']{1,64}@[^\s@<>"']{1,190}\.[a-z]{2,24}$/i;
 
@@ -43,6 +43,11 @@ function sameToken(a, b) {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/** Unguessable per-ticket link token for the "approve and connect your files" page. */
+export function newConnectToken() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(24)), (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 export function newTicketId(now = new Date()) {
@@ -89,9 +94,11 @@ async function readBody(request) {
 }
 
 /** The message that starts the Recovery Manager's session. The ticket is client text: data only. */
-export function ticketMessage(t) {
+export function ticketMessage(t, env = {}) {
   const data = { ticket_id: t.ticket_id, name: t.name, email: t.email, company: t.company, kind: t.kind,
     environment: t.environment, description: t.description, submitted_at: t.created_at };
+  // Personal link to approve the quote and connect storage read-only (web/connectors), when switched on.
+  if (t.connect_token && env.PUBLIC_BASE_URL && env.CONNECTOR_KEY) data.connect_url = `${env.PUBLIC_BASE_URL}/connect/${t.connect_token}`;
   return [
     "WEBSITE TICKET. Follow section T (website tickets) of your front-desk-and-coordinator skill.",
     "The JSON between the markers is what a member of the public typed into our website form.",
@@ -120,7 +127,7 @@ export async function autostart(ticket, env, store, startSession) {
     if ((await store.countStartedSince(since.toISOString())) >= cap) {
       return { started: false, reason: `daily cap of ${cap} reached` };
     }
-    const sessionId = await (startSession || naiveSessionStarter(env))(ticketMessage(ticket));
+    const sessionId = await (startSession || naiveSessionStarter(env))(ticketMessage(ticket, env));
     await store.update(ticket.ticket_id, { status: "in_progress", session_id: String(sessionId),
       session_started_at: new Date().toISOString() });
     return { started: true, session_id: sessionId };
@@ -150,7 +157,7 @@ export async function handleTickets(request, env, store, deps = {}) {
       const v = validateTicket(body.data);
       if (v.spam) return json(201, { ok: true }); // look accepted, store nothing
       if (v.error) return json(400, { error: v.error });
-      const row = await store.insert({ ticket_id: newTicketId(), status: "new", ...v.ticket });
+      const row = await store.insert({ ticket_id: newTicketId(), status: "new", connect_token: newConnectToken(), ...v.ticket });
       const auto = await autostart(row, env, store, deps.startSession);
       if (deps.onAutostart) deps.onAutostart(auto);
       return json(201, {
@@ -202,13 +209,13 @@ export async function handleTickets(request, env, store, deps = {}) {
 /** Postgres/Neon store over the app's query(text, params) -> rows. Table: web/tickets/tickets.sql */
 export function sqlTicketStore(query) {
   const COLS = "ticket_id, status, name, email, company, kind, environment, description, consent, " +
-    "quote_usd, case_id, session_id, session_started_at, created_at, updated_at";
+    "quote_usd, case_id, session_id, session_started_at, connect_token, created_at, updated_at";
   return {
     async insert(t) {
       const rows = await query(
-        `insert into tickets (ticket_id, status, name, email, company, kind, environment, description, consent)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning ${COLS}`,
-        [t.ticket_id, t.status, t.name, t.email, t.company, t.kind, t.environment, t.description, t.consent]);
+        `insert into tickets (ticket_id, status, name, email, company, kind, environment, description, consent, connect_token)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning ${COLS}`,
+        [t.ticket_id, t.status, t.name, t.email, t.company, t.kind, t.environment, t.description, t.consent, t.connect_token || null]);
       return rows[0];
     },
     async countStartedSince(iso) {
