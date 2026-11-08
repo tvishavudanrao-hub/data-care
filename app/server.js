@@ -45,5 +45,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 8787);
   const server = await startServer({ port });
   const where = process.env.NEON_DATABASE_URL ? "Neon" : "an in-memory database";
-  console.log(`Code Care app on http://127.0.0.1:${server.address().port} using ${where}`);
+  console.log(`Data Care app on http://127.0.0.1:${server.address().port} using ${where}`);
 }

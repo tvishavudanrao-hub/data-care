@@ -93,9 +93,20 @@ test("bad input gets a clear 400", async () => {
   assert.equal((await call("PATCH", "/api/cases/C-4040", { stage: "intake" })).status, 404);
 });
 
+test("verdict outcome tells error and untested apart from fail", async () => {
+  await call("POST", "/api/cases", { case_id: "C-0005", client_email: "v@x.io", kind: "excel" });
+  let r = await call("POST", "/api/verdicts", { case_id: "C-0005", pass: false, outcome: "untested", results: [], retry_count: 0 });
+  assert.equal(r.status, 201);
+  assert.equal((await r.json()).outcome, "untested");
+  r = await call("POST", "/api/verdicts", { case_id: "C-0005", pass: false, outcome: "crashed", results: [], retry_count: 0 });
+  assert.equal(r.status, 400);
+  const board = await (await call("GET", "/api/board", undefined, null)).json();
+  assert.equal(board.latest_verdict.outcome, "untested");
+});
+
 test("board page and health", async () => {
   const page = await call("GET", "/", undefined, null);
-  assert.match(await page.text(), /Code Care/);
+  assert.match(await page.text(), /Data Care/);
   const h = await (await call("GET", "/api/health")).json();
   assert.deepEqual(h, { ok: true, db: true, token_valid: true });
   assert.equal(maskEmail("anna@x.io"), "a***@x.io");

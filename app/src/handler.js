@@ -1,4 +1,4 @@
-// Code Care app: records API for the agents plus the live board. Fetch-standard, so it runs as a
+// Data Care app: records API for the agents plus the live board. Fetch-standard, so it runs as a
 // Worker (worker.js) or under Node (server.js) with the same code.
 import { TABLES, InputError } from "./db.js";
 import { BOARD_HTML } from "./board.js";
