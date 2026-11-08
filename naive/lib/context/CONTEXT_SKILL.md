@@ -39,7 +39,7 @@ For every open gap in gaps.json, take initiative:
 5. Never fill a gap with a guess, an average, or a number from another period or another file. A gap that stays open is the honest answer.
 
 ## What the outputs mean
-- evidence.json: {"case_id", "values", "reported", "rules"}. values are raw inputs from exports (they can fill blank input cells). reported are computed figures from reports (they test rebuilt formulas). rules are rule sentences with their numbers (10% is 0.1, $5k is 5000.0) and an operator_hint. Labels and periods use the model's own labels when the match is confident, and the raw text otherwise.
+- evidence.json: {"case_id", "values", "reported", "rules", "known_missing"}. values are raw inputs from exports (they can fill blank input cells). reported are computed figures from reports (they test rebuilt formulas); a "Label: value" line takes the period of the heading it sits under, a period after "vs" or "compared with" never counts, and markdown pipe tables give one figure per cell. rules are rule sentences with their numbers (10% is 0.1, $5k is 5000.0; "Tier 1", "Row 6" and years are not numbers) and an operator_hint, plus "context" (the numbered item or heading), "row_hint" (the model row it talks about) and, when the text says so, "scope" (whole or marginal), "base" (net revenue or gross revenue), "zero_denominator" and "references_assumptions". Labels map to the model's row labels (by word overlap when needed) and "source_label" keeps the original. known_missing lists figures the client says do not exist (leave the cell blank and mark it unresolved, citing the fragment).
 - fragments.json: one record per piece of evidence, with an honest confidence: 0.95 for an exact figure in a clearly named export or report, 0.9 when only case or punctuation differ, 0.7 for a fuzzy label match, 0.6 for a number inside an email sentence or a rule in words, lower for weaker sources.
 - gaps.json: blank or #REF! cells no evidence covers, unreadable rows, missing sheets or files, functions called but never defined, conflicting figures, and model periods with no reported figures. Each gap lists ranked places to look.
 - Do not edit values, confidences or sources by hand. Add evidence as files and rerun.
@@ -66,7 +66,7 @@ Write the code below to context_scan.py exactly as shown, then run it as in step
 Reads every file of a recovery case and writes into --out-dir:
   fragments.json  every piece of evidence found: id, file, location, type, confidence, notes
   gaps.json       what is missing, why it matters, where to look (ranked), status "open"
-  evidence.json   {"case_id", "values", "reported", "rules"} for formula_infer.py
+  evidence.json   {"case_id", "values", "reported", "rules", "known_missing"} for formula_infer.py
   inventory.md    short human-readable list: each file, what it is, what was found, what is missing
 Formats are defined in CONTRACTS.md. Python 3.8+ standard library only.
 
@@ -378,7 +378,7 @@ _OPS = [
                    r"minimum\s+of", r"minimum", r"min\.?", r"starting\s+at", r"\u2265", r">="]),
     ("<=", "pre", [r"no\s+more\s+than", r"not\s+more\s+than", r"at\s+most", r"up\s+to", r"a\s+maximum\s+of",
                    r"maximum\s+of", r"maximum", r"max\.?", r"capped\s+at", r"a\s+cap\s+of", r"cap\s+of",
-                   r"not\s+to\s+exceed", r"not\s+exceeding", r"\u2264", r"<="]),
+                   r"not\s+to\s+exceed", r"not\s+exceeding", r"\u2264", r"<=", r"the\s+first", r"first"]),
     (">=", "post", [r"or\s+more", r"or\s+greater", r"or\s+higher", r"or\s+above", r"or\s+over", r"and\s+above",
                     r"and\s+over", r"and\s+up", r"and\s+higher"]),
     ("<=", "post", [r"or\s+less", r"or\s+fewer", r"or\s+lower", r"or\s+below", r"or\s+under", r"and\s+below",
@@ -395,6 +395,9 @@ _AMT_BEFORE = re.compile(r"\d[\d,.]*\s*(?:%|k|m|mm|bn|million|thousand|billion|p
                          r"(?:[A-Za-z$]+\s+){0,2}$", re.I)
 
 
+_OP_NOUN_AFTER = re.compile(r"\s+(?:the|this|that|these|those|its|our|their|current|new|each|every|any)\b", re.I)
+
+
 def operator_hint(sent):
     """'>', '>=', '<', '<=' or None. Prefers a phrase that sits next to an amount."""
     first = None
@@ -405,20 +408,130 @@ def operator_hint(sent):
             return op
         if pos == "post" and _AMT_BEFORE.search(sent[:m.start()]):
             return op
-        if first is None and m.start() > 0:
+        if (first is None and m.start() > 0 and not m.group(0).lower().endswith("first")
+                and not _OP_NOUN_AFTER.match(sent, m.end())):
             first = op
     if re.search(r"\d\s*\+(?!\d)", sent):
         return ">="
     return first
 
 
+# a number right after one of these words is a name or position ("Tier 1", "Row 6", "item 2"), not a rule number
+_NAME_ORD = re.compile(r"(?:\b(?:tiers?|rows?|columns?|cols?|lines?|levels?|bands?|steps?|phases?|stages?|items?|notes?|"
+                       r"sections?|parts?|rules?|points?|brackets?|grades?|groups?|options?|scenarios?|sheets?|tabs?|"
+                       r"pages?|appendix|exhibits?|tables?|figures?|fig|charts?|schedules?|versions?|ver|v|no|nr|"
+                       r"number|weeks?|wk|days?|cells?|class|category|type|tranches?|layers?|buckets?|slabs?|zones?|"
+                       r"regions?|stores?|sites?|cohorts?|waves?|batch|lots?)\.?\s*#?|#)\s*$", re.I)
+_ZERO_WORDS = re.compile(r"\bno\s+(?:discount|rebate|commission|bonus|fee|charge|surcharge|reduction)s?\b"
+                         r"|\b(?:gets?|earns?|receives?|pays?)\s+(?:nothing|zero|none)\b", re.I)
+
+
+def rule_numbers(text):
+    """Numbers a rule states. Names and positions ("Tier 1", "Row 6", list markers "1."), periods and years are
+    left out; "no discount" / "get nothing" add 0.0."""
+    out = []
+    for v, kind, s, e in extract_numbers(text):
+        if kind == "plain" and _NAME_ORD.search(text[max(0, s - 16):s]):
+            continue
+        if (kind == "plain" and float(v).is_integer() and v < 100 and text[e:e + 1] in (".", ")")
+                and (e + 1 >= len(text) or text[e + 1].isspace()) and re.search(r"(?:^|[:;]\s*|\s{2,})$", text[:s])):
+            continue
+        out.append(v)
+    if _ZERO_WORDS.search(text) and 0.0 not in out:
+        out.append(0.0)
+    return out
+
+
 def rule_from_sentence(sent):
     if len(sent) > 600 or not RULE_KW.search(sent):
         return None
-    nums = extract_numbers(sent)
+    nums = rule_numbers(sent)
     if not nums:
         return None
-    return {"text": sent, "numbers": [n[0] for n in nums], "operator_hint": operator_hint(sent)}
+    return {"text": sent, "numbers": nums, "operator_hint": operator_hint(sent)}
+
+
+# comparison periods ("153.8% vs Q2 2026", "up from Q2") do not say which period a figure is for
+_CMP_BEFORE = re.compile(r"\b(?:vs|versus|compared\s+(?:with|to)|relative\s+to|from|prior|over|against|than|since|"
+                         r"previous)\.?\s*(?:the\s+)?(?:(?:prior|previous|same|last)\s+)?(?:(?:period|quarter|year|"
+                         r"month)\s+)?(?:\(\s*)?$", re.I)
+
+
+def own_periods(text):
+    """find_periods_in_text without the periods that follow vs / versus / compared with / from / prior / over."""
+    return [(a, b, c) for a, b, c in find_periods_in_text(text) if not _CMP_BEFORE.search(text[max(0, a - 40):a])]
+
+
+# "Label: value" lines are figures, not rules
+_KV = re.compile(r"^(?P<label>[^:=]{2,80}?)\s*[:=]\s*(?P<val>\(?\s*-?\s*(?:usd\s*|us\$\s*|[$€£]\s*)?-?\d[\d,]*"
+                 r"(?:\.\d+)?\s*(?:%|k|mm|m|bn)?\s*\)?)(?P<rest>(?:\s*[,;]?\s*\([^)]*\))?\s*[.;]?)$", re.I)
+
+
+def bare_figure(sent):
+    """(label, value, own period canons) when a sentence is just 'Label: value', else None."""
+    m = _KV.match(sent.strip())
+    if not m:
+        return None
+    label = m.group("label").strip()
+    if not re.search(r"[A-Za-z]", label) or OP_RE.search(label):
+        return None
+    rest = label
+    for a, b, _ in sorted(find_periods_in_text(label), reverse=True):
+        rest = rest[:a] + " " + rest[b:]
+    if re.search(r"\d", rest):
+        return None
+    v = parse_number(m.group("val"))
+    clean = re.sub(r"\s+", " ", re.sub(r"\(\s*\)", " ", rest)).strip(" -,:")
+    if v is None or not clean:
+        return None
+    return clean, v, [c for _, _, c in own_periods(label)]
+
+
+# what a rule says beyond its numbers
+_DEF_VERB = re.compile(r"(?:\b(?:is|are|equals?|times|multiplied|divided|over|minus|plus|less|sums?|gets?|earns?|"
+                       r"appl(?:y|ies|ied)|follows?|decided|calculated|computed|recalculated|shows?|rounded|"
+                       r"reference|referenced|vs|versus|held|stays?|lives?|live)\b|=|\s/\s|\sx\s)", re.I)
+_ROUND = re.compile(r"\bround(?:ed|ing)?\b.{0,40}?\b(?:cents?|penny|pennies|dollars?|decimals?|places?|nearest|whole)\b",
+                    re.I)
+_SCOPE_MARGINAL = re.compile(r"\bmarginal\w*\b|\btax[- ]brackets?\b|\bincremental\b|\bonly\s+(?:the\s+)?units\s+"
+                             r"(?:above|over|beyond)\b|\b(?:above|over|beyond)\s+each\s+(?:threshold|tier|band|bracket)",
+                             re.I)
+_SCOPE_WHOLE = re.compile(r"\b(?:whole|entire)\b|\ball\s+(?:the\s+)?units\b|\bevery\s+unit\b|\bretroactive\w*", re.I)
+_BASE = re.compile(r"\b(?:of|on|to|against)\s+(?:the\s+)?(?:(?:whole|entire|full|total)\s+)?(?:(?:quarter|month|year|"
+                   r"period|order)(?:'s|s'|s)?\s+)?(?P<a>net|gross|list|total)?\s*(?:\(\s*(?P<b>net|gross|list)\s*\)\s*)?"
+                   r"(?P<n>revenue|sales)\b", re.I)
+_ZERO_DEN = re.compile(r"\b(?:denominator|divisor)\s+(?:is\s+|=\s*|equals\s+)?(?:zero|0)\b|\bzero\s+denominators?\b"
+                       r"|\b(?:division|dividing)\s+by\s+(?:zero|0)\b", re.I)
+_ZERO_SHOW = re.compile(r"\b(?:show|return|use|display|report|put|enter|give|treat|set)\w*\s+(?:it\s+)?(?:as\s+|to\s+)?"
+                        r"(?:0(?:\.0+)?\s*%?|zero)(?![\d.])", re.I)
+_REFS_TAB = re.compile(r"\b(?:assumptions?|inputs?|drivers?|parameters?|settings?)\s+(?:tab|sheet|worksheet|page)\b", re.I)
+_REFS_VERB = re.compile(r"\b(?:live|lives|are|is|sit|sits|kept|held|stored|found)\s+(?:on|in)\b|\breferenc\w*|\brefer\b|"
+                        r"\blink\w*|\bpoint\w*\s+(?:at|to)\b|\bpull\w*|\bfollow\w*|\bfrom\b", re.I)
+_MISSING = re.compile(r"\b(?:do(?:es)?\s+not|don'?t|doesn'?t)\s+have\b|\bnot\s+(?:yet\s+)?(?:available|closed|final\w*|"
+                      r"known|ready|in\s+yet)\b|\bunavailable\b|\b(?:cannot|can'?t|can\s+not)\s+(?:give|provide|share|"
+                      r"send)\b|\bno\s+(?:number|figure|value|data)\s+for\b|\b(?:is|are|was|were)\s+(?:missing|lost|gone)\b"
+                      r"|\bleave\s+(?:it|them|that|those|this|these|the\s+cells?)\s+(?:blank|empty)\b", re.I)
+
+
+def rule_flags(text):
+    """Optional rule fields a text states: scope, base, zero_denominator, references_assumptions."""
+    out = {}
+    marg, whole = _SCOPE_MARGINAL.search(text), _SCOPE_WHOLE.search(text)
+    if marg and (not whole or re.search(r"\bmarginal|brackets?\b", text, re.I)):
+        out["scope"] = "marginal"
+    elif whole:
+        out["scope"] = "whole"
+    for m in _BASE.finditer(text):
+        w = next((x.lower() for x in (m.group("a"), m.group("b")) if x and x.lower() in ("net", "gross")), None)
+        if w:
+            out["base"] = "%s %s" % (w, m.group("n").lower())
+            break
+    zd = _ZERO_DEN.search(text)
+    if zd and _ZERO_SHOW.search(text, zd.start()):
+        out["zero_denominator"] = 0
+    if _REFS_TAB.search(text) and _REFS_VERB.search(text):
+        out["references_assumptions"] = True
+    return out
 
 
 _BULLET = re.compile(r"^\s*(?:[-*\u2022\u2023\u25aa]+|\d{1,2}[.)])\s+")
@@ -447,6 +560,7 @@ def sentences(numbered):
         del para[:]
 
     prev = None
+    bullet_indent = None  # indent of the bullet marker the current paragraph started with
     for ln, raw in numbered:
         t = (raw or "").rstrip()
         quoted = False
@@ -455,16 +569,96 @@ def sentences(numbered):
             quoted, t = True, t[qm.end():]
         if not t.strip():
             flush()
-            prev = ln
+            prev, bullet_indent = ln, None
             continue
+        indent = len(t) - len(t.lstrip())
         b = _BULLET.match(t)
-        if b or (prev is not None and ln != prev + 1) or (para and para[-1][2] != quoted):
+        body = t[b.end():] if b else t
+        kv = bool(_KV.match(body.strip()))
+        dedent = bullet_indent is not None and not b and indent <= bullet_indent
+        if b or kv or dedent or (prev is not None and ln != prev + 1) or (para and para[-1][2] != quoted):
             flush()
-        if b:
-            t = t[b.end():]
-        para.append((ln, t.strip(), quoted))
+            bullet_indent = indent if b else None
+        para.append((ln, body.strip(), quoted))
+        if kv:
+            flush()
+            bullet_indent = None
         prev = ln
     flush()
+    return out
+
+
+_MD_HEAD = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+_ITEM_START = re.compile(r"^(\s*)(\d{1,2}[.)])\s+\S")
+
+
+def line_contexts(numbered):
+    """{line_no: {...}}: the markdown heading (and the period it names, inherited from parent headings), the
+    numbered item (1. 2. ...) and the lead-in line ending with ':' that each line sits under."""
+    out, heads, item, lead, blank = {}, [], None, None, False
+    for ln, raw in numbered:
+        t = (raw or "").rstrip()
+        qm = re.match(r"^\s*((?:>\s?)+)", t)
+        if qm:
+            t = t[qm.end():]
+        s = t.strip()
+        if not s:
+            blank = True
+            continue
+        indent = len(t) - len(t.lstrip())
+        hm = _MD_HEAD.match(t)
+        if hm:
+            level, text = len(hm.group(1)), hm.group(2).strip()
+            while heads and heads[-1][0] >= level:
+                heads.pop()
+            ps = {c for _, _, c in own_periods(text)}
+            heads.append((level, text, ps.pop() if len(ps) == 1 else None))
+            item = lead = None
+            blank = False
+            out[ln] = {"is_head": True}
+            continue
+        im = _ITEM_START.match(t)
+        bullet = bool(_BULLET.match(t)) and not im
+        if im:
+            item, lead = (ln, im.group(2), len(im.group(1))), None
+        elif item and blank and indent <= item[2] and not bullet:
+            item = None
+        if not bullet:
+            lead = (ln, s) if s.endswith(":") and not im else None
+        blank = False
+        out[ln] = {"is_head": False, "head": heads[-1][1] if heads else None,
+                   "hperiod": next((p for _, _, p in reversed(heads) if p), None),
+                   "item": item[0] if item else None, "marker": item[1] if item else None,
+                   "lead": lead if bullet else None}
+    return out
+
+
+def split_md_row(t):
+    s = t.strip()
+    s = s[1:] if s.startswith("|") else s
+    s = s[:-1] if s.endswith("|") else s
+    return [c.strip() for c in re.split(r"(?<!\\)\|", s)]
+
+
+_MD_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+def md_tables(numbered):
+    """[(header_line, header_cells, [(line, cells)], all_lines)] for markdown pipe tables: a header row, a |---|
+    separator, then rows."""
+    lines = [(ln, t or "") for ln, t in numbered]
+    out, i = [], 0
+    while i < len(lines) - 1:
+        ln, t = lines[i]
+        if "|" in t and _MD_SEP.match(lines[i + 1][1]) and "-" in lines[i + 1][1]:
+            rows, j = [], i + 2
+            while j < len(lines) and "|" in lines[j][1] and lines[j][1].strip():
+                rows.append((lines[j][0], split_md_row(lines[j][1])))
+                j += 1
+            out.append((ln, split_md_row(t), rows, {x for x, _ in lines[i:j]}))
+            i = j
+        else:
+            i += 1
     return out
 
 
@@ -498,7 +692,8 @@ def norm_label(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
-def fuzzy_key(s):
+def fuzzy_tokens(s):
+    """Label words in order: lower case, synonyms expanded (cogs -> cost good sold), plurals made singular."""
     toks = []
     for t in norm_label(s).split():
         t = _SYN.get(t, t)
@@ -510,7 +705,28 @@ def fuzzy_key(s):
             elif len(u) > 3 and u.endswith("s") and not u.endswith("ss"):
                 u = u[:-1]
             toks.append(u)
-    return " ".join(sorted(toks))
+    return toks
+
+
+def fuzzy_key(s):
+    return " ".join(sorted(fuzzy_tokens(s)))
+
+
+def token_window(toks, need):
+    """(start, end) of the shortest stretch of toks that holds every word in need (at most 12 words), else None."""
+    best = None
+    for i, t in enumerate(toks):
+        if t not in need:
+            continue
+        seen = set()
+        for j in range(i, min(len(toks), i + 12)):
+            if toks[j] in need:
+                seen.add(toks[j])
+            if seen == need:
+                if best is None or j - i < best[1] - best[0]:
+                    best = (i, j)
+                break
+    return best
 
 
 def humanize(h):
@@ -777,6 +993,7 @@ def excel_date(serial):
     return date(1899, 12, 30) + timedelta(days=int(serial))
 
 
+_GARBLED = re.compile(r"�|\d\?|\?\d|\?\.|\.\?")  # a number with unreadable characters in it ("2?.4�")
 _SHEETREF = re.compile(r"'((?:[^']|'')+)'!|(?<![\w.#\]'])([A-Za-z_\u00c0-\uffff][\w.\u00c0-\uffff]*)!")
 
 
@@ -854,12 +1071,15 @@ def analyze_book(book):
                     filled = nums >= 2 and nums >= 0.5 * len(pcols)
                     for c in sorted(pcols):
                         k = kinds[c]
-                        if (k == "blank" and filled and c not in empty) or k == "error":
-                            cell = by_row[r].get(c)
+                        cell = by_row[r].get(c)
+                        if k == "text" and filled and _GARBLED.search(str(cell["v"])):
+                            k = "garbled"
+                        if (k == "blank" and filled and c not in empty) or k in ("error", "garbled"):
                             res["damaged"].append({
                                 "sheet": name, "ref": "%s%d" % (col_letters(c), r), "label": label,
                                 "period": pcols[c][0], "canon": pcols[c][1], "kind": k,
-                                "code": (str(cell["v"]).strip().upper() if k == "error" else None),
+                                "code": (str(cell["v"]).strip().upper() if k == "error" else
+                                         str(cell["v"]).strip() if k == "garbled" else None),
                                 "formula": cell["f"] if cell else None})
                 res["tables"].append({"sheet": name, "header_row": hr, "label_col": label_col,
                                       "periods": [(c, pcols[c][0], pcols[c][1]) for c in sorted(pcols)],
@@ -1105,6 +1325,8 @@ class Scan(object):
         self.attachment_names = set()
         self.pdftotext = shutil.which("pdftotext")
         self.values, self.reported = [], []
+        self.model_rows = set()        # labels of the model's table rows (assumption labels are not in it)
+        self.known, self.known_missing = [], []   # figures the client says do not exist (leave blank, flag)
 
     # -- records ----------------------------------------------------------
     def frag(self, source_file, location, ftype, conf, notes):
@@ -1119,11 +1341,20 @@ class Scan(object):
         self.pending_gaps.append(g)
         return g
 
-    def add_rule(self, rel, loc, rule, conf, origin):
-        f = self.frag(rel, loc, "clue", conf, "%s rule: %s | numbers %s | operator %s" % (
-            origin, short(rule["text"], 160), ", ".join(fmt_num(n) for n in rule["numbers"]), rule["operator_hint"]))
-        self.rules.append({"text": rule["text"], "numbers": rule["numbers"], "operator_hint": rule["operator_hint"],
-                           "source": "%s#%s" % (rel, loc), "fragment_id": f["fragment_id"]})
+    def add_rule(self, rel, loc, rule, conf, origin, context=None, row_hint=None, flags=None):
+        """flags: optional fields (scope, base, zero_denominator, references_assumptions); when None they are read
+        from the rule's own text. row_hint defaults to the model row the text talks about."""
+        if row_hint is None:
+            row_hint = self.row_hint(rule["text"])
+        flags = rule_flags(rule["text"]) if flags is None else flags
+        extra = "".join(" | %s %s" % (k, v) for k, v in sorted(flags.items()))
+        f = self.frag(rel, loc, "clue", conf, "%s rule: %s | numbers %s | operator %s%s%s" % (
+            origin, short(rule["text"], 160), ", ".join(fmt_num(n) for n in rule["numbers"]), rule["operator_hint"],
+            (" | row %s" % row_hint) if row_hint else "", extra))
+        r = {"text": rule["text"], "numbers": rule["numbers"], "operator_hint": rule["operator_hint"],
+             "source": "%s#%s" % (rel, loc), "fragment_id": f["fragment_id"], "context": context, "row_hint": row_hint}
+        r.update(flags)
+        self.rules.append(r)
         return f
 
     def add_item(self, kind, label, praw, canon, value, rel, loc, base, how, plan=False):
@@ -1262,6 +1493,7 @@ class Scan(object):
                 for _, p, c in t["periods"]:
                     if p not in [x for x, _ in self.model_periods]:
                         self.model_periods.append((p, c))
+            self.model_rows.update(labels)
             for l in labels + [a["label"] for a in A["assumptions"]]:
                 if l and l not in self.model_labels:
                     self.model_labels.append(l)
@@ -1302,7 +1534,8 @@ class Scan(object):
             if RULE_KW.search(a["label"]):
                 self.add_rule(rel, loc, {"text": text, "numbers": [a["value"]], "operator_hint": operator_hint(a["label"] + " 1")
                                          if re.search(r"\b(?:min|minimum|max|maximum|cap)\b", a["label"], re.I) else None},
-                              0.95, "spreadsheet assumption")
+                              0.95, "spreadsheet assumption", context=a["sheet"],
+                              row_hint=a["label"] if is_model else None)
             else:
                 self.frag(rel, loc, "record", 0.95, "assumption: %s" % text)
         if A["assumptions"]:
@@ -1510,34 +1743,80 @@ class Scan(object):
         """Rules, quoted figures, simple tables, file mentions and instruction-like text."""
         full = "\n".join(t for _, t in numbered)
         self.texts[rel] = (self.texts.get(rel, "") + "\n" + full.lower())[:2000000]
-        nr = nf = 0
-        tbl, tlines = text_table_items(numbered)
-        prose = [(ln, "" if ln in tlines or (_TABLE_LINE.search(t or "") and re.search(r"\d", t or "")) else t)
+        nr = nf = nk = 0
+        ctxs = line_contexts(numbered)
+        mds = md_tables(numbered)
+        md_lines = set().union(*[t[3] for t in mds]) if mds else set()
+        tbl, tlines = text_table_items([(ln, "" if ln in md_lines else t) for ln, t in numbered])
+        md_items, md_rules = self.md_table_items(mds, ctxs)
+        tbl = tbl + md_items
+        prose = [(ln, "" if ln in tlines or ln in md_lines or (ctxs.get(ln) or {}).get("is_head")
+                  or (_TABLE_LINE.search(t or "") and re.search(r"\d", t or "")) else t)
                  for ln, t in numbered]
-        for ln, sent, quoted in sentences(prose):
+        sents = sentences(prose)
+        groups, first = {}, {}
+        for ln, sent, _ in sents:
+            it = (ctxs.get(ln) or {}).get("item")
+            if it:
+                groups.setdefault(it, []).append(sent)
+                first.setdefault(it, sent)
+        hints = {it: self.row_hint(s) for it, s in first.items()}
+        for ln, sent, quoted in sents:
             c = conf - (0.1 if quoted else 0.0)
-            r = rule_from_sentence(sent)
+            cx = ctxs.get(ln) or {}
+            it, lead = cx.get("item"), cx.get("lead")
+            if it:
+                context, group, ctx_hint = "%s %s" % (cx["marker"], first[it]), " ".join(groups[it]), hints.get(it)
+            elif lead:
+                context, group, ctx_hint = lead[1], lead[1] + " " + sent, self.row_hint(lead[1])
+            else:
+                context, group, ctx_hint = cx.get("head"), sent, None
+            hp = cx.get("hperiod")
+            bf = bare_figure(sent)
+            if bf and (bf[2] or hp):
+                label, v, own = bf
+                canon = own[0] if len(set(own)) == 1 else (hp if not own else None)
+                if canon:
+                    kind = "reported" if (COMPUTED_WORDS.search(label) or not RAW_WORDS.search(label)) else "values"
+                    self.add_item(kind, label, display_period(canon), canon, v, rel, "line%d" % ln,
+                                  min(c + 0.2, 0.8), "label: value line under a heading" if not own else "label: value line",
+                                  is_plan_file(rel))
+                    nf += 1
+                    continue
+            if self.known_gap(rel, ln, sent, c):
+                nk += 1
+                continue
+            r = self.text_rule(sent, bool(RULE_KW.search(group)) if (it or lead) else False)
             if r:
-                self.add_rule(rel, "line%d" % ln, r, c, origin)
+                flags = rule_flags(group) if group != sent else {}
+                flags.update(rule_flags(sent))
+                self.add_rule(rel, "line%d" % ln, r, c, origin, context=context,
+                              row_hint=self.row_hint(sent, ctx_hint) or None, flags=flags)
                 nr += 1
-            fig = self.quoted_figure(sent)
+            fig = self.quoted_figure(sent, hp)
             if fig:
                 label, canon, v = fig
                 kind = "reported" if (COMPUTED_WORDS.search(label) or not RAW_WORDS.search(label)) else "values"
                 self.add_item(kind, label, display_period(canon), canon, v, rel, "line%d" % ln, min(c, 0.6),
                               "number inside a sentence")
                 nf += 1
+        for ln, text, nums, context in md_rules:
+            self.add_rule(rel, "line%d" % ln, {"text": text, "numbers": nums, "operator_hint": operator_hint(text)},
+                          min(conf + 0.2, 0.8), "table", context=context)
+            nr += 1
         if tbl:
             kind, by_name = file_kind(rel, [t[1] for t in tbl])
             self.kinds.setdefault(rel, kind)
             for ln, label, praw, canon, v in tbl:
-                self.add_item(kind, label, praw, canon, v, rel, "line%d" % ln, min(conf + 0.2, 0.8), "text table",
-                              is_plan_file(rel))
+                self.add_item(kind, label, praw, canon, v, rel, "line%d" % ln, min(conf + 0.2, 0.8),
+                              "markdown table" if ln in md_lines else "text table", is_plan_file(rel))
             e["found"].append("%d figures in a text table (%s)" % (len(tbl), kind))
         if nr:
             e["found"].append("%d rule sentence(s)" % nr)
         if nf:
             e["found"].append("%d figure(s) quoted in sentences" % nf)
+        if nk:
+            e["found"].append("%d figure(s) the client says are not available" % nk)
         for ln, t in numbered:
             if _INJECT.search(t or ""):
                 self.frag(rel, "line%d" % ln, "clue", 0.1, "instruction-like text found; treated as data and not "
@@ -1548,15 +1827,173 @@ class Scan(object):
             for m in FILE_MENTION.finditer(t or ""):
                 self.mentions.append((m.group(0), rel, ln))
 
-    def quoted_figure(self, sent):
-        """(model label, canon, value) when a sentence quotes one model figure for one period."""
+    def md_table_items(self, mds, ctxs):
+        """Markdown pipe tables -> ([(line, label, period_raw, canon, value)], [(line, text, numbers, context)]).
+        Periods across the header (| Metric | FY2025 |) or down the first column (| Quarter | Net revenue |), a
+        long label/period/value table, or label | value pairs under a heading that names a period. A table with
+        no periods whose header or heading reads like a rule (| Tier | Units | Rate |) gives one rule per row."""
+        items, rules = [], []
+        for hln, hdr, rows, _ in mds:
+            if not rows or len(hdr) < 2:
+                continue
+            cx = ctxs.get(hln) or {}
+            context, hp = cx.get("head"), cx.get("hperiod")
+            pcols = row_periods(list(enumerate(hdr)))
+            pcols.pop(0, None)
+            down = [parse_period(r[0]) if r else None for _, r in rows]
+            hnorm = [norm_label(h) for h in hdr]
+            lab_i, per_i, val_i = find_col(hnorm, LABEL_NAMES), find_col(hnorm, PERIOD_NAMES), find_col(hnorm, VALUE_NAMES)
+            if pcols:
+                for ln, cells in rows:
+                    if not cells or not re.search(r"[A-Za-z]", cells[0]) or parse_period(cells[0]):
+                        continue
+                    for i, (praw, canon) in sorted(pcols.items()):
+                        v = parse_number(cells[i]) if i < len(cells) else None
+                        if v is not None:
+                            items.append((ln, cells[0], praw, canon, v))
+            elif sum(1 for c in down if c) >= max(1.0, 0.8 * len(rows)):
+                for ln, cells in rows:
+                    canon = parse_period(cells[0]) if cells else None
+                    for i in range(1, min(len(hdr), len(cells))) if canon else ():
+                        v = parse_number(cells[i])
+                        if v is not None and re.search(r"[A-Za-z]", hdr[i]) and not ID_LIKE.search(hdr[i]):
+                            items.append((ln, hdr[i], cells[0], canon, v))
+            elif lab_i is not None and per_i is not None and val_i is not None:
+                for ln, cells in rows:
+                    if max(lab_i, per_i, val_i) < len(cells):
+                        v, canon = parse_number(cells[val_i]), parse_period(cells[per_i])
+                        if v is not None and canon and cells[lab_i]:
+                            items.append((ln, cells[lab_i], cells[per_i], canon, v))
+            else:
+                kw = RULE_KW.search(" ".join(hdr) + " " + (context or ""))
+                for ln, cells in rows:
+                    nums = [(i, parse_number(x)) for i, x in enumerate(cells) if x]
+                    nums = [(i, v) for i, v in nums if v is not None]
+                    if not nums:
+                        continue
+                    if len(hdr) == 2 and hp and [i for i, _ in nums] == [1] and re.search(r"[A-Za-z]", cells[0]):
+                        items.append((ln, cells[0], display_period(hp), hp, nums[0][1]))
+                    elif kw or RULE_KW.search(" ".join(cells)):
+                        text = "; ".join("%s: %s" % (h, x) for h, x in zip(hdr, cells) if x)
+                        rules.append((ln, text, [v for i, v in nums if not (i == 0 and _NAME_ORD.search(hdr[0] + " "))],
+                                      context))
+        return items, rules
+
+    def known_gap(self, rel, ln, sent, conf):
+        """A sentence where the client says a figure does not exist ('I do not have Q1 2026 operating expenses',
+        'Q4 2026 operating expenses are not closed yet'): recorded as known missing, not as a rule."""
+        if not _MISSING.search(sent):
+            return False
+        ps = own_periods(sent)
+        canons = {c for _, _, c in ps}
+        if len(canons) != 1:
+            return False
+        label = self.mentioned_label(sent)
+        if not label:
+            m = re.match(r"\s*([A-Za-z][A-Za-z &/-]{2,60}?)(?=\s+(?:is|are|was|were|for|in|at|and|has|have|will)\b|"
+                         r"[.,;:]|$)", sent[ps[0][1]:])
+            label = m.group(1).strip() if m else None
+        if not label or set(fuzzy_tokens(label)) <= {"number", "figure", "data", "result", "book", "account", "report",
+                                                      "value", "actual", "financial", "statement", "info", "detail",
+                                                      "yet", "the", "any", "all", "our", "it", "them", "that", "this"}:
+            return False
+        canon = canons.pop()
+        f = self.frag(rel, "line%d" % ln, "clue", conf, "the client says %s for %s is not available (leave it blank and "
+                      "flag it, do not estimate): %s" % (label, display_period(canon), short(sent, 160)))
+        self.known.append({"label_raw": label, "canon": canon, "period_raw": display_period(canon), "rel": rel,
+                           "source": "%s#line%d" % (rel, ln), "frag": f, "text": sent})
+        return True
+
+    def text_rule(self, sent, ctx_kw=False):
+        """A rule: a sentence that says how something is calculated or decided. With numbers it needs a rule word,
+        a percent of a revenue base, a zero-denominator or rounding instruction, or (inside a numbered item or
+        under a lead-in about discounts, tiers...) a threshold, percent or 'no discount'. Without numbers it must
+        name a model row or a rule word next to a formula verb (is, =, times, over, applies, reference...)."""
+        if len(sent) > 600 or sent.rstrip().endswith("?"):
+            return None
+        nums = rule_numbers(sent)
+        kw = bool(RULE_KW.search(sent))
+        if nums:
+            pct = any(k == "pct" for _, k, _, _ in extract_numbers(sent))
+            ok = (kw or _ZERO_DEN.search(sent) or (pct and _BASE.search(sent)) or _ROUND.search(sent)
+                  or (ctx_kw and (pct or operator_hint(sent) or _ZERO_WORDS.search(sent))))
+        else:
+            verbs = [m.group(0).strip().lower() for m in _DEF_VERB.finditer(sent)]
+            strong = [v for v in verbs if v not in ("is", "are", "vs", "versus", "held", "stay", "stays", "live", "lives")]
+            ok = (len(sent) <= 300 and (_ZERO_DEN.search(sent) or _ROUND.search(sent)
+                                         or (verbs and self.mentioned_label(sent)) or (kw and strong)))
+        if not ok:
+            return None
+        return {"text": sent, "numbers": nums, "operator_hint": operator_hint(sent) if nums else None}
+
+    def mentioned_label(self, text):
+        """The model label whose words sit closest together and earliest in text (table rows before assumptions)."""
+        toks = fuzzy_tokens(text)
+        best = None
+        for l in self.model_labels:
+            need = set(fuzzy_tokens(l))
+            w = token_window(toks, need) if need else None
+            if not w or w[1] - w[0] + 1 > 2 * len(need) + 1:
+                continue
+            key = (w[0], w[1] - w[0], -len(need), l not in self.model_rows)
+            if best is None or key < best[0]:
+                best = (key, l)
+        return best[1] if best else None
+
+    def overlap_label(self, raw):
+        """The model label that holds every word of raw with the fewest extra words ('list price' -> 'List price per
+        unit', 'discount' -> 'Volume discount' rather than 'Discount rate'), or None when two fit equally."""
+        S = set(fuzzy_tokens(raw))
+        if not S or not self.model_labels:
+            return None
+        rate = bool(RATE_WORDS.search(raw))
+        cands = [l for l in self.model_labels if S <= set(fuzzy_tokens(l)) and bool(RATE_WORDS.search(l)) == rate]
+        cands = [l for l in cands if l in self.model_rows] or cands
+        if not cands:
+            return None
+        extra = {l: len(set(fuzzy_tokens(l)) - S) for l in cands}
+        cands = [l for l in cands if extra[l] == min(extra.values())]
+        return cands[0] if len(cands) == 1 else None
+
+    _GENERIC_WORDS = {"rate", "threshold", "tier", "cap", "limit", "minimum", "maximum", "total", "unit", "count",
+                      "number", "sum", "net", "gross", "balance", "volume", "order", "fee"}
+    _SUBJ_END = re.compile(r"\s(?:is|are|was|were|equals?|gets?|earns?|appl(?:y|ies|ied)|shows?|follows?|held|stays?|"
+                           r"lives?|must|should|will|can)\b|[=:;]|\s-\s", re.I)
+
+    def row_hint(self, text, ctx_hint=None):
+        """The model row a rule talks about: a row named in its subject, else its item's row, else the first row
+        named anywhere in it, else a single word that points at one row ('discount' -> 'Volume discount')."""
+        if not self.model_labels:
+            return ctx_hint
+        m = self._SUBJ_END.search(text)
+        subj = text[:m.start()] if m else text
+        structural = re.search(r"\b(?:row|line|column|col)\s+\w+", subj, re.I)
+        hit = None if structural else (self.mentioned_label(subj) or self.overlap_label(subj))
+        if hit or (ctx_hint and not structural):
+            return hit or ctx_hint
+        body = _BASE.sub(" ", text)     # "x% of net revenue": the base is not the row the rule is about
+        hit = self.mentioned_label(body)
+        if hit:
+            return hit
+        for w in fuzzy_tokens(body):
+            if w not in self._GENERIC_WORDS and (RULE_KW.search(w) or COMPUTED_WORDS.search(w) or RAW_WORDS.search(w)):
+                hit = self.overlap_label(w)
+                if hit:
+                    return hit
+        return ctx_hint
+
+    def quoted_figure(self, sent, hperiod=None):
+        """(model label, canon, value) when a sentence quotes one model figure for one period. Periods after vs /
+        compared with / from / prior do not count; with none left, the heading's period is used."""
         if not self.model_norm_sorted or len(sent) > 400:
             return None
         ns = " %s " % norm_label(sent)
         label = next((l for nl, l in self.model_norm_sorted if len(nl) >= 3 and (" %s " % nl) in ns), None)
         if not label:
             return None
-        ps = {c for _, _, c in find_periods_in_text(sent)}
+        ps = {c for _, _, c in own_periods(sent)}
+        if not ps and hperiod:
+            ps = {hperiod}
         if len(ps) != 1:
             return None
         nums = [n for n in extract_numbers(sent) if n[1] != "pct" or RATE_WORDS.search(label)]
@@ -1903,6 +2340,9 @@ class Scan(object):
                         reverse=True)
         if scored and scored[0][0] >= 0.88 and (len(scored) == 1 or scored[1][0] < scored[0][0] - 0.05):
             return scored[0][1], "fuzzy"
+        hit = self.overlap_label(raw)
+        if hit:
+            return hit, "word overlap"
         return raw, "unmatched"
 
     def align_period(self, canon, raw, single_year):
@@ -1935,7 +2375,8 @@ class Scan(object):
             if it["canon"] and it["canon"][2]:
                 years.setdefault(it["canon"][0], set()).add(it["canon"][2])
         single = {k: len(v) == 1 for k, v in years.items()}
-        lconf = {"none": 0.95, "exact": 0.95, "normalized": 0.9, "fuzzy": 0.7, "ambiguous": 0.6, "unmatched": 0.6}
+        lconf = {"none": 0.95, "exact": 0.95, "normalized": 0.9, "fuzzy": 0.7, "word overlap": 0.7, "ambiguous": 0.6,
+                 "unmatched": 0.6}
         for it in self.items:
             label, lt = self.align_label(it["label_raw"])
             period, pt = self.align_period(it["canon"], it["period_raw"], single)
@@ -1957,8 +2398,22 @@ class Scan(object):
             it["frag"]["confidence"] = round(max(0.0, min(1.0, conf)), 2)
             it["frag"]["notes"] = notes
             entry = {"label": label, "period": period, "value": it["value"], "source": it["source"],
-                     "fragment_id": it["frag"]["fragment_id"]}
+                     "fragment_id": it["frag"]["fragment_id"], "source_label": it["label_raw"]}
             (self.values if it["kind"] == "values" else self.reported).append(entry)
+        for k in self.known:
+            label, _ = self.align_label(k["label_raw"])
+            period, _ = self.align_period(k["canon"], k["period_raw"], single)
+            k["label"], k["period"] = label, period
+            self.known_missing.append({"label": label, "period": period, "source": k["source"],
+                                       "fragment_id": k["frag"]["fragment_id"], "source_label": k["label_raw"],
+                                       "text": k["text"]})
+            self.gap(1, "%s, %s: the client says this figure is not available (%s)" % (label, period, k["source"]),
+                     "The client asked for it to be left blank and flagged rather than estimated, so the cell stays "
+                     "'unresolved' and cites %s; any figure built on it is unresolved too." % k["frag"]["fragment_id"],
+                     ["the client, once the figure exists (they said: \"%s\")" % short(k["text"], 100),
+                      "the accounting export (general ledger or trial balance) for %s" % period,
+                      "an older saved copy of the model (file version history or an email attachment)"],
+                     files=[k["rel"]])
         # conflicts between sources
         groups = {}
         for it in self.items:
@@ -1994,11 +2449,21 @@ class Scan(object):
             ref = "%s!%s" % (d["sheet"], d["ref"])
             desc = "%s (%s, %s)" % (ref, d["label"] or "no label", d["period"] or "no period")
             hit = covered.get((d["label"], d["period"])) if d["period"] else None
+            km = [k for k in self.known if (k["label"], k["period"]) == (d["label"], d["period"])]
+            if km and not hit:
+                e["found"].append("%s is blank on purpose: the client says the figure is not available (%s)" % (
+                    desc, ", ".join("%s (%s)" % (k["frag"]["fragment_id"], k["source"]) for k in km)))
+                continue
             if hit:
                 e["found"].append("%s %s is covered by %s" % (desc, "blank" if d["kind"] == "blank" else d["code"],
                                                              ", ".join("%s (%s)" % (h["frag"]["fragment_id"], h["source"]) for h in hit[:3])))
                 continue
-            if d["kind"] == "blank":
+            if d["kind"] == "garbled":
+                nb += 1
+                what = "%s is garbled (%s)" % (desc, short(d["code"], 30))
+                why = ("The cell holds unreadable characters instead of a number, and no export or report gives %s "
+                       "for %s, so its value cannot be recovered or checked." % (d["label"], d["period"]))
+            elif d["kind"] == "blank":
                 nb += 1
                 what = "%s is blank" % desc
                 why = ("No surviving value or evidence for %s in %s: an input here cannot be recovered, and a formula "
@@ -2100,7 +2565,8 @@ class Scan(object):
             e["gaps"] = [g["gap_id"] for g in gaps if e["file"] in g["_files"]]
         clean = [{"gap_id": g["gap_id"], "what": g["what"], "why": g["why"], "where_to_look": g["where_to_look"],
                   "status": "open"} for g in gaps]
-        evidence = {"case_id": self.case_id, "values": self.values, "reported": self.reported, "rules": self.rules}
+        evidence = {"case_id": self.case_id, "values": self.values, "reported": self.reported, "rules": self.rules,
+                    "known_missing": self.known_missing}
         for name, obj in (("fragments.json", self.fragments), ("gaps.json", clean), ("evidence.json", evidence)):
             with open(os.path.join(self.out_dir, name), "w", encoding="utf-8") as fh:
                 json.dump(obj, fh, indent=2, ensure_ascii=False)
@@ -2108,7 +2574,8 @@ class Scan(object):
         with open(os.path.join(self.out_dir, "inventory.md"), "w", encoding="utf-8") as fh:
             fh.write(self.inventory_md(clean))
         return {"files": len(self.inventory), "fragments": len(self.fragments), "values": len(self.values),
-                "reported": len(self.reported), "rules": len(self.rules), "gaps": len(clean)}
+                "reported": len(self.reported), "rules": len(self.rules), "gaps": len(clean),
+                "known_missing": len(self.known_missing)}
 
     def inventory_md(self, gaps):
         L = ["# Evidence inventory: %s" % self.case_id, "",
@@ -2137,11 +2604,16 @@ class Scan(object):
             L.append("- none")
         L += ["", "## Rules found"]
         for r in self.rules:
-            L.append("- %s: \"%s\" numbers %s, operator %s (%s)" % (
+            L.append("- %s: \"%s\" numbers %s, operator %s%s (%s)" % (
                 r["fragment_id"], short(r["text"], 140), ", ".join(fmt_num(n) for n in r["numbers"]),
-                r["operator_hint"], r["source"]))
+                r["operator_hint"], (", row %s" % r["row_hint"]) if r.get("row_hint") else "", r["source"]))
         if not self.rules:
             L.append("- none")
+        if self.known_missing:
+            L += ["", "## Figures the client says are not available (leave blank, mark unresolved)"]
+            for k in self.known_missing:
+                L.append("- %s, %s: \"%s\" (%s, %s)" % (k["label"], k["period"], short(k["text"], 120), k["fragment_id"],
+                                                       k["source"]))
         L.append("")
         return "\n".join(L)
 
@@ -2158,8 +2630,9 @@ def main(argv=None):
         return 2
     s = Scan(a.case_dir, a.case, a.model, a.out_dir)
     r = s.run()
-    print("%s: %d files, %d fragments, %d values, %d reported, %d rules, %d open gaps -> %s" % (
-        s.case_id, r["files"], r["fragments"], r["values"], r["reported"], r["rules"], r["gaps"], a.out_dir))
+    print("%s: %d files, %d fragments, %d values, %d reported, %d rules, %d known missing, %d open gaps -> %s" % (
+        s.case_id, r["files"], r["fragments"], r["values"], r["reported"], r["rules"], r["known_missing"], r["gaps"],
+        a.out_dir))
     return 0
 
 

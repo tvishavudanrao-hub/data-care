@@ -21,6 +21,8 @@ FRAG_KEYS = {"fragment_id", "source_file", "location", "type", "confidence", "no
 GAP_KEYS = {"gap_id", "what", "why", "where_to_look", "status"}
 ITEM_KEYS = {"label", "period", "value", "source", "fragment_id"}
 RULE_KEYS = {"text", "numbers", "operator_hint", "source", "fragment_id"}
+ITEM_OPTIONAL = {"source_label"}
+RULE_OPTIONAL = {"context", "row_hint", "scope", "base", "zero_denominator", "references_assumptions"}
 
 
 def run_scan(case_dir, case_id, out_dir, model=None):
@@ -59,15 +61,19 @@ class MainCase(unittest.TestCase):
         self.assertIn("C-0001:", self.stdout)
 
     def test_evidence_shape(self):
-        self.assertEqual(set(self.ev), {"case_id", "values", "reported", "rules"})
+        # CONTRACTS.md: fields may be added, never removed or renamed
+        self.assertLessEqual({"case_id", "values", "reported", "rules"}, set(self.ev))
+        self.assertLessEqual(set(self.ev), {"case_id", "values", "reported", "rules", "known_missing"})
         self.assertEqual(self.ev["case_id"], "C-0001")
         for x in self.ev["values"] + self.ev["reported"]:
-            self.assertEqual(set(x), ITEM_KEYS)
+            self.assertLessEqual(ITEM_KEYS, set(x))
+            self.assertLessEqual(set(x), ITEM_KEYS | ITEM_OPTIONAL)
             self.assertIsInstance(x["value"], float)
             self.assertIn(x["fragment_id"], self.fid)
             self.assertRegex(x["source"], r"^[^#]+#.+")
         for r in self.ev["rules"]:
-            self.assertEqual(set(r), RULE_KEYS)
+            self.assertLessEqual(RULE_KEYS, set(r))
+            self.assertLessEqual(set(r), RULE_KEYS | RULE_OPTIONAL)
             self.assertIn(r["operator_hint"], (">", ">=", "<", "<=", None))
             self.assertTrue(all(isinstance(n, float) for n in r["numbers"]))
             self.assertIn(r["fragment_id"], self.fid)
