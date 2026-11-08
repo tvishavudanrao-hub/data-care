@@ -19,7 +19,7 @@ Every item cites rule ids, fragment ids or cells.
 
 ## Excel model that lost its formulas (kind "excel")
 1. Fetch the damaged model from cases/<case_id>/working/ and evidence.json from cases/<case_id>/evidence/.
-2. Write formula_infer.py from the excel-formula-engine skill to a file, exactly as shown there, and run:
+2. Get formula_infer.py from the file library: use find_files to find it in the folder tools/ (take the newest), then fetch_file it into your sandbox as formula_infer.py. Never retype it. If it is not there, reply failed with the note "formula tool missing". Then run:
    `python3 formula_infer.py --workbook model.xlsx --evidence evidence.json --case <case_id> --out-dir rebuilt/`
 3. Read rebuilt/summary.json.
    - status "needs_client": reply needs_client with the "question" from rebuilt/question.json, word for word. When the client's answer comes back, rerun with `--answer <rule_id>=<option index>` and continue.
@@ -65,7 +65,7 @@ Don't stop at "missing". For every gap (from Context, from tool 3, unreadable ro
 - If cc.py is not available yet, publish the JSON files only; the Recovery Manager logs them.
 
 ## Tools
-Write these three files into the same folder in your sandbox, exactly as below, and run them with python3. Tool 4 (formula_infer.py, for Excel models) is in the excel-formula-engine skill.
+The same three files are in the file library folder tools/ (backtest.py, probe_diff.py, reconcile.py): fetch_file them if you can, otherwise write them into one folder in your sandbox exactly as below. Run them with python3. Tool 4 (formula_infer.py, for Excel models) is only in tools/; the excel-formula-engine skill explains it.
 
 ### Tool 1: backtest.py
 Example mapping for an invoice export with goods_subtotal and shipping columns:

@@ -38,6 +38,8 @@ system: >-
   item, missing info → surviving source(s) → candidate reconstruction method, with evidence
   strength. Separate certain from inferred, flag conflicts between sources, and where evidence is
   thin say so rather than guessing.
+skills:
+  - context-evidence
 tools:
   default_config:
     permission: deny
@@ -53,6 +55,9 @@ tools:
     bash:
       enabled: true
       permission: allow
+    edit:
+      enabled: false
+      permission: allow
     find:
       enabled: true
       permission: allow
@@ -62,8 +67,26 @@ tools:
     show:
       enabled: true
       permission: allow
+    write:
+      enabled: false
+      permission: allow
+    mobile:
+      enabled: false
+      permission: allow
+    browser:
+      enabled: false
+      permission: allow
+    compose:
+      enabled: false
+      permission: allow
+    build_3d:
+      enabled: false
+      permission: allow
     crm.read:
       enabled: true
+      permission: allow
+    data_run:
+      enabled: false
       permission: allow
     crm.write:
       enabled: true
@@ -71,14 +94,38 @@ tools:
     web_fetch:
       enabled: true
       permission: ask
+    board_read:
+      enabled: false
+      permission: allow
+    clip_video:
+      enabled: false
+      permission: allow
+    fetch_file:
+      enabled: true
+      permission: allow
+    find_files:
+      enabled: true
+      permission: allow
     open_panel:
       enabled: true
       permission: allow
     read_skill:
       enabled: true
       permission: allow
+    view_image:
+      enabled: false
+      permission: allow
     web_search:
       enabled: true
+      permission: allow
+    write_plan:
+      enabled: false
+      permission: allow
+    board_write:
+      enabled: false
+      permission: allow
+    data_search:
+      enabled: false
       permission: allow
     list_agents:
       enabled: true
@@ -86,14 +133,80 @@ tools:
     ask_operator:
       enabled: true
       permission: allow
+    propose_plan:
+      enabled: false
+      permission: allow
     publish_file:
       enabled: true
+      permission: allow
+    data_describe:
+      enabled: false
+      permission: allow
+    get_character:
+      enabled: false
+      permission: allow
+    request_tools:
+      enabled: false
       permission: allow
     send_to_agent:
       enabled: true
       permission: allow
+    session_spend:
+      enabled: true
+      permission: allow
+    generate_image:
+      enabled: false
+      permission: allow
+    generate_music:
+      enabled: false
+      permission: allow
+    generate_video:
+      enabled: false
+      permission: allow
+    generate_speech:
+      enabled: false
+      permission: allow
+    list_characters:
+      enabled: false
+      permission: allow
+    post_to_channel:
+      enabled: false
+      permission: allow
     project_context:
       enabled: true
+      permission: allow
+    wait_for_agents:
+      enabled: false
+      permission: allow
+    create_character:
+      enabled: false
+      permission: allow
+    delete_character:
+      enabled: false
+      permission: allow
+    find_stock_photo:
+      enabled: false
+      permission: allow
+    list_as_template:
+      enabled: false
+      permission: allow
+    pay_out_earnings:
+      enabled: false
+      permission: allow
+    transcribe_audio:
+      enabled: false
+      permission: allow
+    update_character:
+      enabled: false
+      permission: allow
+    build_media_skill:
+      enabled: false
+      permission: allow
+    generate_3d_model:
+      enabled: false
+      permission: allow
+    generate_sound_effect:
+      enabled: false
       permission: allow
 budget:
   cap_usd: "10.00"

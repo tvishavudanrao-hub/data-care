@@ -36,6 +36,7 @@ system: >-
   say plainly when the evidence cannot support it.
 skills:
   - reconstruction-toolkit
+  - excel-formula-engine
 tools:
   default_config:
     permission: deny
@@ -100,7 +101,7 @@ tools:
       enabled: true
       permission: allow
     find_files:
-      enabled: false
+      enabled: true
       permission: allow
     open_panel:
       enabled: true
@@ -148,7 +149,7 @@ tools:
       enabled: true
       permission: allow
     session_spend:
-      enabled: false
+      enabled: true
       permission: allow
     generate_image:
       enabled: true
