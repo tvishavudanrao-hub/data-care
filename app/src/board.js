@@ -98,7 +98,7 @@ function render(d) {
     const cards = cs.map((c) =>
       '<div class="card ' + esc(c.stage) + '" data-id="' + esc(c.case_id) + '" onclick="openCase(this.dataset.id)"><b>' + esc(c.case_id) + '</b>' +
       '<div>' + esc(c.kind) + ' · ' + money(c.cost) + (c.retry_count ? ' · retry ' + c.retry_count : '') + '</div>' +
-      (c.quote_usd != null ? '<div>quote ' + money(c.quote_usd) + '</div>' : '') + '</div>').join("");
+      (c.quote_usd != null ? '<div>quote ' + money(c.quote_usd) + ' · cost ' + money(c.cost) + (c.quote_usd > 0 ? ' · ' + Math.round(100 * (1 - c.cost / c.quote_usd)) + '% margin' : '') + '</div>' : '') + '</div>').join("");
     return '<div class="lane' + (cs.length ? ' hot' : '') + '"><h2><span>' + esc(stage.replace("_", " ")) +
       '</span><span>' + cs.length + '</span></h2>' + (cards || '<div class="empty">none</div>') + '</div>';
   }).join("");
