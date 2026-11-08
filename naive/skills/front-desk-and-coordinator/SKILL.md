@@ -102,7 +102,7 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 
 Every email you send, receipts, quotes, questions, supplier requests, updates and
 deliveries alike, is built with `email_format.py` (folder `tools`, id
-`fil_015c5cqe16h9vyc9q1bbqgbkez`; fetch it with cc.py at the start of the session). Write
+`fil_015c5cqe16h9vyc9q1bbqgbkez`; `fetch_file` it at the start of the session, like cc.py). Write
 the content as JSON and run `python3 email_format.py --file content.json`; pass BOTH the
 returned `html` and `text` to `agentmail.send_message` / `reply_to_message`. Never send
 plain text alone.
