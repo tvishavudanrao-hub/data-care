@@ -1,0 +1,69 @@
+import json
+import os
+import tempfile
+import unittest
+import zipfile
+
+import forensics_scan as fs
+
+SHEET = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>%s</sheetData></worksheet>'
+
+
+def make_xlsx(path, cells):
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("xl/workbook.xml", "<workbook/>")
+        z.writestr("xl/worksheets/sheet1.xml", SHEET % ('<row r="1">%s</row>' % cells))
+
+
+class ForensicsScanTests(unittest.TestCase):
+    def run_scan(self, files):
+        d = tempfile.mkdtemp()
+        i, o = os.path.join(d, "in"), os.path.join(d, "out")
+        os.makedirs(i)
+        for n, b in files.items():
+            if callable(b):
+                b(os.path.join(i, n))
+            else:
+                with open(os.path.join(i, n), "wb") as fh:
+                    fh.write(b)
+        return fs.scan("C-0001", i, o), o
+
+    def test_values_without_formulas_flagged_missing(self):
+        r, _ = self.run_scan({"m.xlsx": lambda p: make_xlsx(p, '<c r="A1"><v>5</v></c><c r="B1"><v>7</v></c>')})
+        f = r["files"][0]
+        self.assertEqual(f["status"], "damaged")
+        self.assertTrue(any(x["class"] == "missing" for x in f["findings"]))
+
+    def test_error_cell_flagged_and_formulas_not_missing(self):
+        r, _ = self.run_scan({"m.xlsx": lambda p: make_xlsx(
+            p, '<c r="A1"><f>1+1</f><v>2</v></c><c r="B1" t="e"><v>#REF!</v></c>')})
+        cls = [x["class"] for x in r["files"][0]["findings"]]
+        self.assertIn("corrupted", cls)
+        self.assertNotIn("missing", cls)
+
+    def test_marker_quarantined_not_in_working(self):
+        r, o = self.run_scan({"n.txt": b"hello " + fs.EICAR_MARK})
+        self.assertEqual(r["files"][0]["status"], "quarantined")
+        self.assertTrue(os.path.exists(os.path.join(o, "quarantine", "n.txt")))
+        self.assertFalse(os.path.exists(os.path.join(o, "working", "n.txt")))
+
+    def test_secret_value_never_stored(self):
+        r, o = self.run_scan({"c.txt": b"x\npassword = hunter2hunter2\n"})
+        self.assertIn("line 2", json.dumps(r))
+        with open(os.path.join(o, "damage_report.json")) as fh:
+            self.assertNotIn("hunter2", fh.read())
+
+    def test_unreadable_and_ragged_rows(self):
+        r, _ = self.run_scan({"a.csv": b"a,b\n1,2\n3,\xff\xfe\n5,6,7\n"})
+        locs = [x["where"] for x in r["files"][0]["findings"]]
+        self.assertIn("line 3", locs)
+        self.assertIn("line 4", locs)
+
+    def test_extension_mismatch(self):
+        r, _ = self.run_scan({"fake.xlsx": b"just text"})
+        self.assertTrue(any(x["class"] == "inconsistent" for x in r["files"][0]["findings"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
