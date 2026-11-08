@@ -2,7 +2,7 @@
 
 This lets a client **connect their own storage, read-only**. The site then searches it for the evidence a recovery needs: older copies, exports, reports and related files. No attachments, no size limits from email, and no guessing which file matters.
 
-The first connector is **Google Drive**. Microsoft 365/OneDrive, Dropbox and GitHub follow the same pattern: a consent redirect, an encrypted token, a search, then a copy.
+Connectors: **Google Drive, Microsoft 365 (OneDrive and SharePoint), Dropbox and GitHub**. All of them are read-only, and each is switched on by its own settings; one without settings shows as "coming soon". The client can connect several, and each is searched and logged separately.
 
 ## Flow
 
@@ -30,25 +30,35 @@ POST /api/connectors/revoke-expired (cron, x-cc-token): auto-revoke after CONNEC
 - **Files never opened here.** They're stored, never opened or run.
 - **Client text escaped.** Everything the client typed is escaped on every page. File names and ticket text go to the agents marked as data.
 
-## Switch it on (Andy, plus whoever owns the Google account)
+## Switch it on (Andy, plus whoever owns each developer account)
 
-1. **Google Cloud project.**
-   - Enable the **Google Drive API**.
-   - Set up the **OAuth consent screen** with scopes `drive.readonly`, `openid` and `email`.
-   - Create an **OAuth client** (web) with redirect URI `https://<site>/connect/google/callback`.
+**1. Register an app with each provider you want.** The redirect URI is always `https://<site>/connect/<provider>/callback`.
 
-   While the app is in "Testing", only listed test users can connect. That's fine for the demo; add your own Google account. `drive.readonly` is a restricted scope, so public launch needs Google's verification.
-2. **App secrets** (Vercel, never in the repo):
+| Provider | Where | Read-only access to request | Settings it gives you |
+|---|---|---|---|
+| **Google Drive** | Google Cloud console: enable the Drive API, set up the OAuth consent screen, create a web OAuth client | `drive.readonly`, `openid`, `email` | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| **Microsoft 365** | Microsoft Entra admin center, App registrations (accounts in any org plus personal) | Delegated `Files.Read.All`, `User.Read`, `offline_access`, `openid`, `email` | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, optional `MICROSOFT_TENANT` (default `common`) |
+| **Dropbox** | Dropbox App Console: Scoped access, Full Dropbox | `account_info.read`, `files.metadata.read`, `files.content.read` (tick nothing else) | `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` |
+| **GitHub** | GitHub Settings, Developer settings, **GitHub Apps** (not OAuth Apps), with "Expire user tokens" on | Repository permissions: **Contents: Read-only**, Metadata: Read-only. No write permissions. | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
 
-   | Setting | Value |
-   |---|---|
-   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | from step 1 |
-   | `PUBLIC_BASE_URL` | e.g. `https://datacare-71m10sqe9a2n.vercel.app` |
-   | `CONNECTOR_KEY` | 32 random bytes, base64: `openssl rand -base64 32` |
-   | `NAIVE_FILES_API_KEY` | a Naive key with **files:write only** |
-   | `CONNECTOR_MAX_DAYS` | optional, default `14` |
-3. **Database:** apply `web/tickets/tickets.sql`, then `web/connectors/connectors.sql`, to Neon.
-4. **Wiring:** in `app/src/handler.js`, before the other routes:
+Notes:
+- **Google:** `drive.readonly` is a restricted scope, so a public launch needs Google's verification. In "Testing" mode only listed test users can connect.
+- **GitHub:** a classic OAuth App can only get read *and write* access to private repos, which would break the read-only promise. Use a GitHub App. The client must also **install** it on the repos they want searched, and we only see those.
+- **Microsoft:** there is no API for an app to cancel its own access. On disconnect we delete our token, and the status page links the client to myapps.microsoft.com to remove us.
+- **Write access is refused.** If a Microsoft or Dropbox token ever comes back with write access, we refuse it and read nothing.
+
+**2. App secrets** (Vercel, never in the repo). Add the provider settings above, plus:
+
+| Setting | Value |
+|---|---|
+| `PUBLIC_BASE_URL` | e.g. `https://datacare-71m10sqe9a2n.vercel.app` |
+| `CONNECTOR_KEY` | 32 random bytes, base64: `openssl rand -base64 32` |
+| `NAIVE_FILES_API_KEY` | a Naive key with **files:write only** |
+| `CONNECTOR_MAX_DAYS` | optional, default `14` |
+
+**3. Database:** apply `web/tickets/tickets.sql`, then `web/connectors/connectors.sql`, to Neon.
+
+**4. Wiring:** in `app/src/handler.js`, before the other routes:
    ```js
    import { handleConnectors, sqlConnectorStore } from "../../web/connectors/connectors.js";
    import { naiveFiles } from "../../web/connectors/naive_files.js";
@@ -57,9 +67,11 @@ POST /api/connectors/revoke-expired (cron, x-cc-token): auto-revoke after CONNEC
      startSession: env.TICKETS_AUTOSTART === "1" ? naiveSessionStarter(env) : null });
    if (c) return c;
    ```
-   Then `npm i @usenaive-sdk/managed-agents` in `app/`.
-5. **Recovery Manager:** Anna adds `recovery-manager-section-T2.md` to the skill.
-6. **Cron:** call `POST /api/connectors/revoke-expired` daily, for example with a Vercel cron.
+   Then `npm i @usenaive-sdk/managed-agents` in `app/`. The app's ticket copy in `app/src/tickets/` also needs the `connect_token` change from `web/tickets/tickets.js`.
+
+**5. Recovery Manager:** Anna adds `recovery-manager-section-T2.md` to the skill. It already says "Google Drive"; read that as "the connected storage" (the message names the `source`).
+
+**6. Cron:** call `POST /api/connectors/revoke-expired` daily, for example with a Vercel cron.
 
 ## Try it locally (pretend Drive, nothing leaves your machine)
 
@@ -68,6 +80,7 @@ node web/connectors/server.js
 ```
 
 1. Open http://127.0.0.1:8791/tickets and submit.
+4. On the connect page, every provider is clickable, each with its own pretend storage. Connect several, then open the status page.
 2. Open the connect link printed in the terminal, then click Connect.
 3. The terminal shows what would be copied and the message the Recovery Manager would receive.
 
@@ -81,5 +94,6 @@ There are 14 tests, including the real SQL on Postgres via PGlite.
 
 - **Naive upload is unverified.** `naive_files.js` uses the documented `files.upload(FormData)`. Its `folder` field mirrors the CLI's `--folder` flag, but it hasn't been tried against Naive yet. Do one real upload and check it with `naive file list --folder <ticket>-incoming`.
 - **Search runs in the callback.** That's fine for the caps above, but Vercel functions have a time limit. For big Drives, move the search to a background job.
-- **Google Drive only so far.** Microsoft 365 is next.
+- **GitHub reads only current files.** It reads the default branch, so a deleted module is only found if a copy or its tests survive there. Searching git history is a later step.
+- **Providers tested against fakes.** All four are tested with fake versions that answer like the real APIs. None has been tried with a real account yet; each needs its developer app registered first.
 - **Desktop scout not built.** For files only on a laptop, a desktop scout app is the later step. Context's scanner can already take a whole-computer export.

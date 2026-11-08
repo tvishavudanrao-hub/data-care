@@ -46,7 +46,7 @@ async function setup(files, opts) {
   const ticket = (await tickets.list(null)).find((t) => t.ticket_id === ticket_id);
   const g = fakeGoogle(files, opts);
   const uploads = [], sessions = [];
-  const deps = { store, provider: googleDrive(env, g.fetchImpl), startSession: async (m) => { sessions.push(m); return "ses_1"; },
+  const deps = { store, providers: { google: googleDrive(env, g.fetchImpl) }, startSession: async (m) => { sessions.push(m); return "ses_1"; },
     files: { upload: async (f) => { uploads.push(f); return "fil_" + uploads.length; } } };
   return { tickets, store, ticket, g, uploads, sessions, deps };
 }
@@ -99,7 +99,7 @@ test("full flow: connect -> search -> copy matches to <ticket>-incoming -> log -
   assert.equal(r.headers.get("location"), `/connect/${s.ticket.connect_token}/status`);
   // copied: the xlsx and the exported Google Sheet; the oversized PDF is skipped
   assert.deepEqual(s.uploads.map((u) => [u.name, u.folder]),
-    [["drive-Forecast model backup.xlsx", `${s.ticket.ticket_id}-incoming`], ["drive-ERP export Q3.xlsx", `${s.ticket.ticket_id}-incoming`]]);
+    [["google-Forecast model backup.xlsx", `${s.ticket.ticket_id}-incoming`], ["google-ERP export Q3.xlsx", `${s.ticket.ticket_id}-incoming`]]);
   const log = await s.store.accessLog(s.ticket.ticket_id);
   assert.deepEqual(log.map((e) => e.action), ["fetched", "fetched", "skipped"]);
   assert.equal(log[2].reason, "too large");
@@ -226,4 +226,168 @@ test("SQL tables and store work on real Postgres (PGlite)", async (t) => {
   const [c2] = await store.connections(ticket_id);
   assert.ok(c2.revoked_at);
   assert.equal(c2.sealed_refresh, "");
+});
+
+// ---------------------------------------------------------------- Microsoft 365, Dropbox, GitHub
+import { microsoft365, dropbox, github, providers as providerRegistry } from "./providers.js";
+
+const allEnv = { ...env, MICROSOFT_CLIENT_ID: "mid", MICROSOFT_CLIENT_SECRET: "msec", DROPBOX_APP_KEY: "dk",
+  DROPBOX_APP_SECRET: "ds", GITHUB_CLIENT_ID: "gid", GITHUB_CLIENT_SECRET: "gsec" };
+
+function fakeApis({ msScope = "openid email User.Read Files.Read.All offline_access", dbScope = "account_info.read files.metadata.read files.content.read" } = {}) {
+  const calls = [];
+  const idToken = "x." + Buffer.from(JSON.stringify({ preferred_username: "dana@alderbank.example" })).toString("base64url") + ".y";
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    const u = new URL(url);
+    // Microsoft
+    if (u.host === "login.microsoftonline.com") return Response.json({ access_token: "ms-acc", refresh_token: "ms-ref", scope: msScope, id_token: idToken });
+    if (u.host === "graph.microsoft.com" && u.pathname.includes("/search(")) {
+      return Response.json({ value: [
+        { id: "m1", name: "Forecast model.xlsx", size: 900, file: { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, parentReference: { driveId: "drv" } },
+        { id: "m2", name: "Forecast folder", folder: {} },
+        { id: "m3", name: "forecast party.jpg", size: 10, file: { mimeType: "image/jpeg" } } ] });
+    }
+    if (u.host === "graph.microsoft.com" && u.pathname.endsWith("/content")) return new Response(new Uint8Array(900));
+    // Dropbox
+    if (u.href === "https://api.dropboxapi.com/oauth2/token") return Response.json({ access_token: "db-acc", refresh_token: "db-ref", scope: dbScope });
+    if (u.href === "https://api.dropboxapi.com/2/users/get_current_account") return Response.json({ email: "dana@dropbox.example" });
+    if (u.href === "https://api.dropboxapi.com/2/files/search_v2") {
+      return Response.json({ matches: [{ metadata: { metadata: { ".tag": "file", id: "id:d1", name: "ERP export.csv", size: 50, path_lower: "/erp export.csv" } } },
+        { metadata: { metadata: { ".tag": "folder", id: "id:d2", name: "Exports" } } }] });
+    }
+    if (u.href === "https://content.dropboxapi.com/2/files/download") return new Response(new Uint8Array(50));
+    if (u.href === "https://api.dropboxapi.com/2/auth/token/revoke") return new Response("null");
+    // GitHub
+    if (u.href === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "ghu_acc", refresh_token: "ghr_ref" });
+    if (u.href === "https://api.github.com/user") return Response.json({ login: "alderbank-dev" });
+    if (u.pathname === "/user/installations") return Response.json({ installations: [{ id: 7 }] });
+    if (u.pathname === "/user/installations/7/repositories") return Response.json({ repositories: [{ full_name: "alderbank/billing", default_branch: "main" }] });
+    if (u.pathname.startsWith("/repos/alderbank/billing/git/trees/")) {
+      return Response.json({ tree: [{ type: "blob", path: "src/invoicing.py", size: 300 }, { type: "blob", path: "config/discounts.yml", size: 40 },
+        { type: "blob", path: "assets/logo.png", size: 5 }, { type: "tree", path: "src" }] });
+    }
+    if (u.pathname.startsWith("/repos/alderbank/billing/contents/")) return new Response(new Uint8Array(30));
+    if (u.pathname === "/applications/gid/grant") return new Response(null, { status: 204 });
+    return new Response("unexpected " + url, { status: 404 });
+  };
+  return { fetchImpl, calls };
+}
+
+async function setupAll(opts) {
+  const tickets = memoryTicketStore();
+  const store = memoryConnectorStore(tickets);
+  const body = { ...good, kind: "code", description: "Our invoicing script lost its discount logic; the forecast export and discounts config still exist." };
+  const { ticket_id } = await (await handleTickets(req("POST", "/api/tickets", JSON.stringify(body), { "content-type": "application/json" }), allEnv, tickets)).json();
+  const ticket = (await tickets.list(null)).find((t) => t.ticket_id === ticket_id);
+  const f = fakeApis(opts);
+  const uploads = [], sessions = [];
+  const deps = { store, providers: providerRegistry(allEnv, f.fetchImpl), startSession: async (m) => { sessions.push(m); return "s"; },
+    files: { upload: async (x) => { uploads.push(x); return "fil_" + uploads.length; } } };
+  return { tickets, store, ticket, f, uploads, sessions, deps };
+}
+
+async function connectVia(s, slug) {
+  const start = await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}/${slug}`), allEnv, s.deps);
+  assert.equal(start.status, 302, slug);
+  const u = new URL(start.headers.get("location"));
+  return { u, res: await handleConnectors(req("GET", `/connect/${slug}/callback?code=c&state=${encodeURIComponent(u.searchParams.get("state"))}`), allEnv, s.deps) };
+}
+
+test("connect page offers every configured provider", async () => {
+  const s = await setupAll();
+  const page = await (await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}`), allEnv, s.deps)).text();
+  for (const l of ["Google Drive", "Microsoft 365 / OneDrive", "Dropbox", "GitHub"]) assert.match(page, new RegExp(`Connect ${l} \\(read-only\\)`));
+  assert.doesNotMatch(page, /coming soon/);
+});
+
+test("Microsoft 365: read-only scope, files only (no folders or photos), shared-drive download", async () => {
+  const s = await setupAll();
+  const { u, res } = await connectVia(s, "microsoft");
+  assert.equal(u.origin + u.pathname, "https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+  assert.equal(u.searchParams.get("scope"), "offline_access openid email User.Read Files.Read.All");
+  assert.doesNotMatch(u.searchParams.get("scope"), /ReadWrite/);
+  assert.equal(res.status, 302);
+  assert.deepEqual(s.uploads.map((x) => x.name), ["microsoft-Forecast model.xlsx"]);
+  assert.ok(s.f.calls.some((c) => c.url === "https://graph.microsoft.com/v1.0/drives/drv/items/m1/content"));
+  assert.equal(s.store._conns[0].account, "dana@alderbank.example");
+  assert.match(s.sessions[0], /"source": "Microsoft 365 \/ OneDrive"/);
+});
+
+test("Microsoft 365: a token with write access is refused and nothing is read", async () => {
+  const s = await setupAll({ msScope: "openid User.Read Files.Read.All Files.ReadWrite.All offline_access" });
+  const { res } = await connectVia(s, "microsoft");
+  assert.equal(res.status, 500);
+  assert.equal(s.store._conns.length, 0);
+  assert.equal(s.uploads.length, 0);
+});
+
+test("Microsoft 365: disconnect deletes our token and points the client to remove the app", async () => {
+  const s = await setupAll();
+  await connectVia(s, "microsoft");
+  await handleConnectors(req("POST", `/connect/${s.ticket.connect_token}/disconnect`), allEnv, s.deps);
+  assert.equal(s.store._conns[0].sealed_refresh, "");
+  const page = await (await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}/status`), allEnv, s.deps)).text();
+  assert.match(page, /myapps\.microsoft\.com/);
+});
+
+test("Dropbox: read-only scopes, files only, download by id, full revoke", async () => {
+  const s = await setupAll();
+  const { u, res } = await connectVia(s, "dropbox");
+  assert.equal(u.origin + u.pathname, "https://www.dropbox.com/oauth2/authorize");
+  assert.equal(u.searchParams.get("scope"), "account_info.read files.metadata.read files.content.read");
+  assert.equal(u.searchParams.get("token_access_type"), "offline");
+  assert.equal(res.status, 302);
+  assert.deepEqual(s.uploads.map((x) => x.name), ["dropbox-ERP export.csv"]);
+  const dl = s.f.calls.find((c) => c.url === "https://content.dropboxapi.com/2/files/download");
+  assert.equal(JSON.parse(dl.init.headers["Dropbox-API-Arg"]).path, "id:d1");
+  assert.equal(s.store._conns[0].account, "dana@dropbox.example");
+  await handleConnectors(req("POST", `/connect/${s.ticket.connect_token}/disconnect`), allEnv, s.deps);
+  assert.ok(s.f.calls.some((c) => c.url === "https://api.dropboxapi.com/2/auth/token/revoke"));
+});
+
+test("Dropbox: a token with write access is refused", async () => {
+  const s = await setupAll({ dbScope: "files.content.read files.content.write" });
+  assert.equal((await connectVia(s, "dropbox")).res.status, 500);
+  assert.equal(s.uploads.length, 0);
+});
+
+test("GitHub: only installed repos, only matching code/config paths, raw download, grant revoked", async () => {
+  const s = await setupAll();
+  const { u, res } = await connectVia(s, "github");
+  assert.equal(u.origin + u.pathname, "https://github.com/login/oauth/authorize");
+  assert.equal(u.searchParams.get("scope"), null); // GitHub App: permissions (Contents: read-only) live on the app, not in a scope
+  assert.equal(res.status, 302);
+  assert.deepEqual(s.uploads.map((x) => x.name).sort(), ["github-alderbank__billing__config__discounts.yml", "github-alderbank__billing__src__invoicing.py"]);
+  assert.ok(s.f.calls.some((c) => c.url.startsWith("https://api.github.com/repos/alderbank/billing/contents/src/invoicing.py?ref=main")));
+  assert.equal(s.store._conns[0].account, "github:alderbank-dev");
+  await handleConnectors(req("POST", `/connect/${s.ticket.connect_token}/disconnect`), allEnv, s.deps);
+  const del = s.f.calls.find((c) => c.url === "https://api.github.com/applications/gid/grant");
+  assert.equal(del.init.method, "DELETE");
+});
+
+test("a sign-in link made for one provider can't be replayed on another", async () => {
+  const s = await setupAll();
+  const start = await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}/dropbox`), allEnv, s.deps);
+  const state = new URL(start.headers.get("location")).searchParams.get("state");
+  const r = await handleConnectors(req("GET", `/connect/github/callback?code=c&state=${encodeURIComponent(state)}`), allEnv, s.deps);
+  assert.equal(r.status, 400);
+  assert.equal(s.uploads.length, 0);
+});
+
+test("unconfigured providers show as coming soon and their routes are closed", async () => {
+  const s = await setup([]);
+  const page = await (await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}`), env, s.deps)).text();
+  assert.match(page, /Dropbox: coming soon/);
+  assert.equal((await handleConnectors(req("GET", `/connect/${s.ticket.connect_token}/dropbox`), env, s.deps)).status, 404);
+});
+
+test("connecting a second account adds files to the same ticket instead of opening a second case", async () => {
+  const s = await setupAll();
+  await connectVia(s, "dropbox");
+  await connectVia(s, "github");
+  assert.equal(s.sessions.length, 2);
+  assert.match(s.sessions[0], /^WEBSITE TICKET APPROVED\./);
+  assert.match(s.sessions[1], /^WEBSITE TICKET MORE FILES\./);
+  assert.match(s.sessions[1], /do not open a second case/);
 });
