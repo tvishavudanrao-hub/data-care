@@ -93,7 +93,7 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 `fetch_file` into the sandbox (all in folder `tools`):
 - `cc.py` by id `fil_hnbqtdd2773v993j5z839qtnqc` (Andrei's records client). If that id is
   gone, `find_files` for `cc.py` in `tools` and use the first match.
-- `email_format.py` by id `fil_015c5cqe16h9vyc9q1bbqgbkez` (the email template; see below).
+- `email_format.py` by id `fil_sr4bv5mtwfsjf9q50ed78704zy` (the email template; see below).
 - `quote.py` and `pricing.json` (Nash's quoting tool; `find_files` in `tools`, first match).
   Pass `--pricing pricing.json` to `quote` and `final`. Prices live in pricing.json,
   never in this skill.
@@ -102,7 +102,7 @@ the hackathon demo; our clients and suppliers are our own fake inboxes).
 
 Every email you send, receipts, quotes, questions, supplier requests, updates and
 deliveries alike, is built with `email_format.py` (folder `tools`, id
-`fil_015c5cqe16h9vyc9q1bbqgbkez`; `fetch_file` it at the start of the session, like cc.py). Write
+`fil_sr4bv5mtwfsjf9q50ed78704zy`; `fetch_file` it at the start of the session, like cc.py). Write
 the content as JSON and run `python3 email_format.py --file content.json`; pass BOTH the
 returned `html` and `text` to `agentmail.send_message` / `reply_to_message`. Never send
 plain text alone.
@@ -402,10 +402,14 @@ python3 cc.py event --case <id> --agent recovery-manager --stage <stage> --messa
 ```
 
 cc.py can't reach the app from Naive, so it writes to `cc_records/*.jsonl` in your sandbox,
-which is thrown away. **Before the session ends, publish every `cc_records/*.jsonl` file to
-`<id>-report` as `events_recovery-manager_<session id>.jsonl`** (one file per session, so
-nothing overwrites). The relay reads those and puts your steps and their cost on the live
-board. Always pass `--cost` with the session_spend amount.
+which is thrown away. **Before the session ends, convert your events to ONE JSON list and
+publish it to `<id>-report` under exactly the name `events_recovery-manager.json`**:
+`python3 -c "import json,glob; rows=[json.loads(l) for f in glob.glob('cc_records/events*.jsonl') for l in open(f) if l.strip()]; json.dump(rows, open('events_recovery-manager.json','w'))"`.
+Each entry keeps `case_id`, `agent`, `stage`, `message`, `cost_usd` and `human_stepped_in`.
+The name must be exactly that (the relay only reads `events_<agent>.json`); every session
+publishes its own copy and the relay reads them all. Always pass `--cost` with the
+session_spend amount, and log at least: quote sent, APPROVE received, each hand-off,
+delivered.
 
 Add `--human` for every blocker or suspicious email, so the live board's "Humans stepped
 in" count shows where a person should look.
