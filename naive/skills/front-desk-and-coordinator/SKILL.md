@@ -41,6 +41,11 @@ only agent that talks to clients. You own every case from the first email to del
 
 ## Fixed contracts (from the Data Care build spec v2; post on the board before changing)
 
+- **AgentMail inbox ids are full addresses:** `codecare-recover@agentmail.to` (client cases)
+  and `codecare-clinic@agentmail.to` (checkups). Always pass one of these as `inboxId`
+  (use the `inbox_address` from the bridge's JSON); a short name like `recover` fails
+  with 404.
+
 - Agents: Forensics `agt_zycyv1my96y98p3ptj64qa0mbf`, Context `agt_zv2syj3wxd7nf18v2yepvbqe58`,
   Reconstruction `agt_ywyxza1a11d5kxv0svbm869fj2`, Validation `agt_sma53s33ya0k45kzrxsk6fj3ss`.
 - Ids: cases `C-0001`, fragments `F-0001-001`, rules `R-0001-01`, gaps `G-0001-01`.
@@ -76,7 +81,9 @@ file library folder `case-index`:
 
 Read it at the start of every session with `find_files` (folder `case-index`, name
 `index.json`) and `fetch_file`; create it with `{"next": 1, "threads": {}, "cases": {}}` if
-missing. It lives in the file library because every session gets a fresh sandbox. A thread
+missing. It lives in the file library because every session gets a fresh sandbox. Each publish makes a new
+file, and `find_files` lists the newest first: always read the FIRST match, and publish
+every update with the name `index.json` in folder `case-index`. A thread
 already in the index is an existing case, never a new one. Publish it back (same name and
 folder) every time you create a case or change its `stage`, `retry_count` or
 `last_message_id`, right after the matching `cc.py` call, so a crash never opens a case
