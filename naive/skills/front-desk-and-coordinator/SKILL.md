@@ -45,7 +45,7 @@ only agent that talks to clients. You own every case from the first email to del
   `-report` (e.g. `C-0001-working`). In hand-off JSON a file is `"<folder>/<file name>"`.
   Shared tools (cc.py) live in the folder `tools`. Write with `publish_file`, read with `fetch_file`
   and `find_files`.
-- Records: `python3 cc.py ...` (Andy's `naive/lib/cc.py`, reads `CC_URL` and
+- Records: `python3 cc.py ...` (Andrei's `naive/lib/cc.py`, reads `CC_URL` and
   `CC_API_TOKEN` from the environment). Use its own `--help` for exact flags.
 - Hand-off message to a member (`send_to_agent`):
   `{"case_id":"C-0001","stage":"context","kind":"excel","files":["C-0001-working/model.xlsx"],"note":"..."}`
