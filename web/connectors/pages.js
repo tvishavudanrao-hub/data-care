@@ -21,13 +21,18 @@ const shell = (title, body) => `<!doctype html><html lang="en"><head><meta chars
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style></head>
 <body><main>${body}</main></body></html>`;
 
-export function CONNECT_PAGE(ticket, token, cancelled) {
+const PROVIDERS = [["google", "Google Drive"], ["microsoft", "Microsoft 365 / OneDrive"], ["dropbox", "Dropbox"], ["github", "GitHub"]];
+
+export function CONNECT_PAGE(ticket, token, cancelled, enabled = ["google"]) {
+  const buttons = PROVIDERS.map(([slug, label]) => enabled.includes(slug)
+    ? `<a class="btn" href="/connect/${esc(token)}/${slug}">Connect ${label} (read-only)</a>`
+    : `<a class="btn secondary soon" aria-disabled="true">${label}: coming soon</a>`).join("\n  ");
   return shell("Data Care: connect your files", `
   <h1>Approve and let us find your files</h1>
   <p class="muted">Request ${esc(ticket.ticket_id)} for ${esc(ticket.name)}</p>
   ${cancelled ? `<p><strong>No access was given.</strong> You can try again below or simply reply to our email.</p>` : ""}
   <p>Instead of sending us files, connect your storage. Our agents search it for the evidence your
-  ${ticket.kind === "code" ? "code" : "spreadsheet"} was built from (older copies, exports, reports, related files),
+  ${ticket.kind === "code" ? "code" : "spreadsheet"} was built from (older copies, exports, reports, related files${ticket.kind === "code" ? ", repositories" : ""}),
   so you don't have to guess what we need.</p>
   <ul class="promises">
     <li><strong>Read-only.</strong> We can't change or delete anything.</li>
@@ -38,10 +43,8 @@ export function CONNECT_PAGE(ticket, token, cancelled) {
       reconstructed but untested, or unresolved.</li>
   </ul>
   <p>By connecting, you approve the quote we emailed you.</p>
-  <a class="btn" href="/connect/${esc(token)}/google">Connect Google Drive (read-only)</a>
-  <a class="btn secondary soon" aria-disabled="true">Microsoft 365 / OneDrive: coming soon</a>
-  <a class="btn secondary soon" aria-disabled="true">Dropbox: coming soon</a>
-  <a class="btn secondary soon" aria-disabled="true">GitHub: coming soon</a>
+  ${buttons}
+  <p class="muted" style="margin-top:12px">You can connect more than one. Each is searched separately and listed on your status page.</p>
   <p class="muted" style="margin-top:20px">Prefer not to connect? Reply to our email with APPROVE and attach your files instead.</p>`);
 }
 
@@ -55,6 +58,9 @@ export function STATUS_PAGE(ticket, token, connections, log) {
   ${active.length ? `<p>Connected: ${active.map((c) => esc(c.account || c.provider)).join(", ")} (read-only).</p>
     <form method="post" action="/connect/${esc(token)}/disconnect"><button class="btn secondary" type="submit">Disconnect now</button></form>`
     : `<p class="ok">No accounts are connected. Our access has ended.</p>`}
+  ${connections.some((c) => c.provider === "microsoft_365") ? `<p class="muted">Microsoft doesn't let apps cancel their own access,
+    so on Disconnect we delete our copy of it. To remove Data Care from your Microsoft account as well, go to
+    <a href="https://myapps.microsoft.com" rel="noopener">myapps.microsoft.com</a>.</p>` : ""}
   <p class="muted">Every file our search looked at is listed here. Copied files are scanned before anyone opens them.</p>
   <div class="wrap"><table><thead><tr><th>File</th><th>What we did</th><th>Why it matched</th></tr></thead>
   <tbody>${rows || '<tr><td colspan="3" class="muted">Nothing yet.</td></tr>'}</tbody></table></div>`);
