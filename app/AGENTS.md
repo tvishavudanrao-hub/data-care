@@ -1,6 +1,6 @@
-# Code Care app
+# Data Care app
 
-Records API for the agents and the live Code Care board. Owner: Andy (@andrei-jacques).
+Records API for the agents and the live Data Care board. Owner: Andrei (@andrei-jacques).
 
 ## Files
 - `src/handler.js`: routes. Fetch-standard, so the same code runs as a Worker (`worker.js`) or under Node (`server.js`).
@@ -33,6 +33,6 @@ python3 ../naive/lib/test_cc.py   # cc.py end to end against this server
 Set `NEON_DATABASE_URL` in the environment to run against Neon instead of memory.
 
 ## Deploying on Naive
-`naive app create codecare --type fullstack`, set the two secrets, then `naive app deploy <app-id> .`.
+`naive app create datacare --type fullstack`, set the two secrets, then `naive app deploy <app-id> .`.
 Not yet confirmed: which build the platform runs for a fullstack app. `worker.js` exports a standard
 `fetch(request, env)` handler; if the platform expects another entry shape, only that file changes.

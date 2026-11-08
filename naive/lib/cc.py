@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cc.py: write Code Care records (cases, fragments, rules, gaps, verdicts, report items, events, checkups).
+"""cc.py: write Data Care records (cases, fragments, rules, gaps, verdicts, report items, events, checkups).
 
 Standard library only, Python 3.8+, so every Naive agent can paste or fetch it into its sandbox.
 
@@ -14,7 +14,7 @@ Standard library only, Python 3.8+, so every Naive agent can paste or fetch it i
     python3 cc.py checkup    --case C-0002 --team "Team X" --repo-url https://... --high 1 --medium 2 --low 5
     python3 cc.py ping
 
-Environment: CC_URL (the Code Care app, e.g. https://codecare.example) and CC_API_TOKEN (sent as x-cc-token).
+Environment: CC_URL (the Data Care app, e.g. https://datacare.example) and CC_API_TOKEN (sent as x-cc-token).
 When CC_URL is not set, records are appended to JSON Lines files in CC_FALLBACK_DIR (default ./cc_records)
 so an agent can keep working before the app is live. Prints the stored row as JSON on success.
 """
@@ -33,6 +33,7 @@ KINDS = ("excel", "code", "checkup", "other")
 STAGES = ("intake", "forensics", "context", "reconstruction", "waiting_client",
           "validation", "approval", "delivered", "unresolved")
 FRAGMENT_TYPES = ("code", "record", "clue")
+OUTCOMES = ("pass", "fail", "error", "untested")
 
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 ATTEMPTS = 4
@@ -99,7 +100,7 @@ def patch_case(case_id, body):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="cc.py", description="Write Code Care records.")
+    p = argparse.ArgumentParser(prog="cc.py", description="Write Data Care records.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("case-new", help="open a case")
@@ -143,9 +144,11 @@ def build_parser():
 
     s = sub.add_parser("verdict", help="log a Validation verdict")
     s.add_argument("--case", required=True)
-    g = s.add_mutually_exclusive_group(required=True)
+    g = s.add_mutually_exclusive_group()
     g.add_argument("--pass", dest="passed", action="store_true")
     g.add_argument("--fail", dest="failed", action="store_true")
+    s.add_argument("--outcome", choices=OUTCOMES,
+                   help="pass, fail, error or untested; error and untested are stored with pass=false")
     s.add_argument("--results", required=True, type=_json_arg,
                    help='JSON list [{"example_id","expected","actual"}], or @file.json')
     s.add_argument("--retry-count", required=True, type=int)
@@ -196,8 +199,13 @@ def run(argv=None):
         return post("gaps", {"gap_id": a.id, "case_id": a.case, "what": a.what, "why": a.why,
                              "where_to_look": a.where_to_look, "status": a.status})
     if a.cmd == "verdict":
-        return post("verdicts", {"case_id": a.case, "pass": bool(a.passed), "results": a.results,
-                                 "retry_count": a.retry_count})
+        if not (a.passed or a.failed or a.outcome):
+            raise CCError("verdict needs --pass, --fail or --outcome")
+        outcome = a.outcome or ("pass" if a.passed else "fail")
+        if (a.passed and outcome != "pass") or (a.failed and outcome == "pass"):
+            raise CCError("--pass/--fail contradicts --outcome %s" % outcome)
+        return post("verdicts", {"case_id": a.case, "pass": outcome == "pass", "outcome": outcome,
+                                 "results": a.results, "retry_count": a.retry_count})
     if a.cmd == "report-item":
         return post("report_items", {"case_id": a.case, "item": a.item, "label": a.label, "cites": a.cites})
     if a.cmd == "event":

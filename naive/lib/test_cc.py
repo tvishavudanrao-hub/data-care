@@ -104,6 +104,20 @@ class CCEndToEnd(unittest.TestCase):
         code, _, err = self.cc("report-item", "--case", "C-0100", "--item", "x", "--label", "guessed", "--cites", "a")
         self.assertEqual(code, 2)  # argparse rejects labels outside the four
 
+    def test_verdict_outcomes(self):
+        self.ok("case-new", "--case", "C-0102", "--client-email", "v@x.io", "--kind", "code")
+        row = self.ok("verdict", "--case", "C-0102", "--outcome", "error", "--results", "[]", "--retry-count", "0")
+        self.assertEqual((row["pass"], row["outcome"]), (False, "error"))
+        row = self.ok("verdict", "--case", "C-0102", "--pass", "--results", "[]", "--retry-count", "1")
+        self.assertEqual((row["pass"], row["outcome"]), (True, "pass"))
+        code, _, err = self.cc("verdict", "--case", "C-0102", "--pass", "--outcome", "error", "--results", "[]",
+                               "--retry-count", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("contradicts", err)
+        code, _, err = self.cc("verdict", "--case", "C-0102", "--results", "[]", "--retry-count", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("needs --pass", err)
+
     def test_fallback_without_url(self):
         with tempfile.TemporaryDirectory() as d:
             code, out, err = self.cc("event", "--agent", "context", "--stage", "context", "--cost", "0.05",
