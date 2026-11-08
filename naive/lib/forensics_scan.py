@@ -114,10 +114,12 @@ def scan(case, in_dir, out_dir):
     os.makedirs(os.path.join(out_dir, "working"), exist_ok=True)
     os.makedirs(os.path.join(out_dir, "quarantine"), exist_ok=True)
     report, frags, gaps = [], [], []
-    for name in sorted(os.listdir(in_dir)):
+    names = []
+    for dp, dn, fn in os.walk(in_dir):
+        dn[:] = [d for d in dn if d not in (".git", "node_modules")]
+        names += [os.path.relpath(os.path.join(dp, f), in_dir).replace(os.sep, "/") for f in fn]
+    for name in sorted(names):
         p = os.path.join(in_dir, name)
-        if not os.path.isfile(p):
-            continue
         with open(p, "rb") as fh:
             data = fh.read()
         kind = sniff(data)
@@ -134,7 +136,9 @@ def scan(case, in_dir, out_dir):
         quarantined = EICAR_MARK in data
         if quarantined:
             fs.append(finding("undocumented", name, "EICAR test marker found: quarantined, not executed", "n/a", 1.0))
-        shutil.copyfile(p, os.path.join(out_dir, "quarantine" if quarantined else "working", name))
+        dest = os.path.join(out_dir, "quarantine" if quarantined else "working", name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(p, dest)
         if quarantined:
             status = "quarantined"
         elif any(f["class"] in ("missing", "corrupted") for f in fs):
