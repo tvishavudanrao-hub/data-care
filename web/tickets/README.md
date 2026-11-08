@@ -62,7 +62,7 @@ customer submits /tickets
   -> app starts a Recovery Manager session on Naive with the ticket as data   (status "in_progress")
   -> Recovery Manager follows section T of its skill: writes a tailored email
      (what we understood, how we'd handle it for their kind of loss, the four-label promise,
-      the quote, getting-started steps for their environment, what to send next)
+      the price from Nash's quote.py / pricing.json, getting-started steps, reply APPROVE + files)
   -> agentmail.send_message from codecare-recover@agentmail.to  -- waits for a person to approve
   -> client replies on that thread with files -> Anna's intake bridge -> section A opens the case
 ```
