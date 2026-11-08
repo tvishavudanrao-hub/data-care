@@ -153,12 +153,21 @@ export function makeDb(query) {
     };
   }
 
+  async function getCase(caseId) {
+    const rows = await query(
+      `select c.*, coalesce((select sum(cost_usd) from events e where e.case_id = c.case_id), 0) as cost
+         from cases c where c.case_id = $1`,
+      [caseId],
+    );
+    return rows.length ? decode(rows[0]) : null;
+  }
+
   async function health() {
     await query("select 1 as ok");
     return true;
   }
 
-  return { insert, patchCase, board, health };
+  return { insert, patchCase, getCase, board, health };
 }
 
 // The board is shown on a projector: hide most of each client address.

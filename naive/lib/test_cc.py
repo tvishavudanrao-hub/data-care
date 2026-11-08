@@ -127,6 +127,24 @@ class CCEndToEnd(unittest.TestCase):
                 row = json.loads(f.readline())
             self.assertEqual(row["agent"], "context")
             self.assertEqual(row["cost_usd"], 0.05)
+            self.assertIn("NOT LOGGED", err)
+            self.assertTrue(json.loads(out)["_not_logged"])
+            code, _, err = self.cc("event", "--agent", "x", "--stage", "y", url=False,
+                                   extra_env={"CC_FALLBACK_DIR": d, "CC_REQUIRE_URL": "1"})
+            self.assertEqual(code, 1)
+            self.assertIn("NOT LOGGED", err)
+
+    def test_case_get(self):
+        self.ok("case-new", "--case", "C-0103", "--client-email", "rm@x.io", "--kind", "excel")
+        self.ok("case-stage", "--case", "C-0103", "--stage", "validation", "--retry-count", "2")
+        row = self.ok("case-get", "--case", "C-0103")
+        self.assertEqual((row["stage"], row["retry_count"]), ("validation", 2))
+        code, _, err = self.cc("case-get", "--case", "C-4040")
+        self.assertEqual(code, 1)
+        self.assertIn("404", err)
+        code, _, err = self.cc("case-get", "--case", "C-0103", url=False)
+        self.assertEqual(code, 1)
+        self.assertIn("needs CC_URL", err)
 
     def test_retries_then_gives_up(self):
         start = time.time()

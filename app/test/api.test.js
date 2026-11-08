@@ -104,6 +104,21 @@ test("verdict outcome tells error and untested apart from fail", async () => {
   assert.equal(board.latest_verdict.outcome, "untested");
 });
 
+test("a case can be read back with its stage, retries and cost", async () => {
+  await call("POST", "/api/cases", { case_id: "C-0006", client_email: "rm@x.io", kind: "excel" });
+  await call("PATCH", "/api/cases/C-0006", { stage: "validation", retry_count: 2 });
+  await call("POST", "/api/events", { case_id: "C-0006", agent: "validation", stage: "validation", cost_usd: 0.25 });
+  let r = await call("GET", "/api/cases/C-0006");
+  assert.equal(r.status, 200);
+  const c = await r.json();
+  assert.equal(c.stage, "validation");
+  assert.equal(c.retry_count, 2);
+  assert.equal(c.cost, 0.25);
+  assert.equal(c.client_email, "rm@x.io");
+  assert.equal((await call("GET", "/api/cases/C-0006", undefined, null)).status, 401);
+  assert.equal((await call("GET", "/api/cases/C-4041")).status, 404);
+});
+
 test("board page and health", async () => {
   const page = await call("GET", "/", undefined, null);
   assert.match(await page.text(), /Data Care/);
