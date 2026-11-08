@@ -383,7 +383,7 @@ tools:
       enabled: true
       permission: deny
 budget:
-  cap_usd: "10.00"
+  cap_usd: "30.00"
   max_task_usd: "3.00"
   period: day
 mcp_servers:
