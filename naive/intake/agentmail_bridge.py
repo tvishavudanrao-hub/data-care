@@ -71,7 +71,7 @@ MAX_SEARCH_HITS = 10
 PUBLIC_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com",
                "icloud.com", "me.com", "proton.me", "aol.com"}
 DONE_LABEL = "dc-processed"
-SESSION_BUDGET_USD = "3"  # Andrei and Balthazar OKed $3 per run (2026-11-08)
+SESSION_BUDGET_USD = "5"  # Andrei OKed $5 per run (2026-11-08)
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 

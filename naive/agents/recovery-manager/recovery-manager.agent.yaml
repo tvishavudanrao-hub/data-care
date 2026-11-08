@@ -1,7 +1,7 @@
 name: Recovery Manager
 description: "Orchestrator: receives recovery requests, assigns Diagnostic → Context →
   Reconstruction → Validation, tracks progress, handles approvals, prepares the final deliverable."
-model: vetta/auto
+model: anthropic/claude-opus-5.5
 harness: pi
 window: immediate
 system: >-
@@ -383,8 +383,8 @@ tools:
       enabled: true
       permission: deny
 budget:
-  cap_usd: "30.00"
-  max_task_usd: "3.00"
+  cap_usd: "50.00"
+  max_task_usd: "5.00"
   period: day
 mcp_servers:
   - name: agentmail
