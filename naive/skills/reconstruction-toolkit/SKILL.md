@@ -46,6 +46,19 @@ Every item cites rule ids, fragment ids or cells.
    (status "needs_client" with the question when step 5 found one; "mismatches" lists backtest rows that still fail, which should be none.)
 8. If Validation sends mismatches back, fix only what they point at, rerun the backtest, and record the retry.
 
+## Trace-back case (kind "trace")
+A food-outbreak trace-back: rank the likely sources (farms, and packer lots) from Context's trace graph. You never contact a supplier. You draft records requests, and a person approves every send.
+1. Work in a fresh folder: `rm -rf work/<case_id> && mkdir -p work/<case_id>/evidence && cd work/<case_id>`. Fetch trace_graph.json and gaps.json from the folder <case_id>-evidence into evidence/.
+2. Use find_files to find trace_infer.py in the folder tools (take the newest), then fetch_file it into your sandbox as trace_infer.py. Never retype it. If it is not there, reply failed with the note "trace tool missing".
+3. Run `python3 trace_infer.py --graph evidence/trace_graph.json --case <case_id> --out-dir rebuilt/ --top 5` (add `--client "<company>"` if the note names it). Read rebuilt/summary.json.
+   - status "needs_client": the top two sources are too close to call. Reply needs_client with the "question" from rebuilt/question.json, word for word. When the client's answer comes back, rerun with `--answer <rule_id>=<option index>` (0-based, from question.json) and continue.
+   - status "done": continue.
+4. Publish rebuilt/hypotheses.json, rules.json, gaps.json and summary.json (and question.json when there is one) to the folder <case_id>-rebuilt, and rebuilt/report_draft.md, requests.json and requests.md to the folder <case_id>-report. Do not run report_draft.py or request_draft.py on a trace case: trace_infer.py writes both. Never send a request yourself: each is a 24-hour draft to one supplier, named by entity id and "to_role" (farm, packer or distributor), worded to confirm or rule out.
+5. Log the records (see Logging: rules.json and gaps.json are yours) and end your turn with exactly this JSON:
+   {"case_id": "<case_id>", "stage": "reconstruction", "status": "done", "outputs": ["<case_id>-rebuilt/hypotheses.json", "<case_id>-rebuilt/rules.json", "<case_id>-rebuilt/gaps.json", "<case_id>-rebuilt/summary.json", "<case_id>-report/report_draft.md", "<case_id>-report/requests.json", "<case_id>-report/requests.md"], "question": null, "mismatches": []}
+   With status "needs_client", put the question in "question" and add "<case_id>-rebuilt/question.json" to "outputs".
+6. Never call a source confirmed in your reply. "reconstructed and tested" means every case it explains has a chain backed by records; Validation checks the ranking.
+
 ## Spreadsheet or ledger rebuilt from receipts (kind "other")
 1. Build one row per piece of evidence: date, party, category, amount and a source column naming the receipt, email or export it came from. A row with no source is not delivered as fact.
 2. Rebuild formulas from surviving totals and patterns, then backtest them (tool 1) against totals the client still has.

@@ -193,7 +193,7 @@ def _verify(case, local: Path, exp: dict, hist: dict, manifest: dict, v: Verdict
     # ---- 2/3. inputs
     damaged = set(exp["damaged_cells"])
     evidence = exp["evidence"]
-    surviving_bad, input_formula = [], []
+    surviving_bad, input_formula, surviving_cells = [], [], []
     for sheet, cell, _key in L.input_cells():
         ref = f"{sheet}!{cell}"
         val = raw(ref)
@@ -224,6 +224,7 @@ def _verify(case, local: Path, exp: dict, hist: dict, manifest: dict, v: Verdict
         elif ref in damaged:
             pass  # damaged non-input cells are handled with their rows
         else:
+            surviving_cells.append(ref)
             if not _same("input", hist[ref], val):
                 surviving_bad.append(ref)
     if input_formula:
@@ -234,7 +235,7 @@ def _verify(case, local: Path, exp: dict, hist: dict, manifest: dict, v: Verdict
         v.reasons.append(f"surviving original inputs were altered: {', '.join(surviving_bad)}")
     v.items.insert(0, Item("surviving inputs", RECOVERED if not surviving_bad else UNRESOLVED,
                            "pass" if not surviving_bad else "fail",
-                           [], "unchanged from the damaged workbook" if not surviving_bad
+                           surviving_cells, "unchanged from the damaged workbook" if not surviving_bad
                            else "originals altered", ["damaged workbook"]))
 
     static = {f"{s}!{c}" for s, c, _r, _k in L.output_cells() if not is_formula(raw(f"{s}!{c}"))}

@@ -136,3 +136,27 @@ test("case detail is public and masks the email", async () => {
   assert.equal(d.counts.fragments, 0);
   assert.equal((await call("GET", "/api/board/case/NOPE", undefined, null)).status, 404);
 });
+
+test("ticket form is served by the app", async () => {
+  const res = await call("GET", "/tickets", undefined, null);
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /<form/i);
+});
+
+test("case detail lists rules", async () => {
+  await call("POST", "/api/cases", { case_id: "C-7001", client_email: "x@example.com", kind: "other" });
+  await call("POST", "/api/rules", { rule_id: "R-7001-01", case_id: "C-7001", description: "Source F05 explains 6 of 8 cases", evidence: ["F-7001-001"], status: "reconstructed and tested" });
+  const d = await (await call("GET", "/api/board/case/C-7001", undefined, null)).json();
+  assert.equal(d.rules.length, 1);
+  assert.equal(d.rules[0].rule_id, "R-7001-01");
+});
+
+test("a re-validated item counts once, with its newest label", async () => {
+  await call("POST", "/api/cases", { case_id: "C-7002", client_email: "y@example.com", kind: "excel" });
+  const item = { case_id: "C-7002", item: "Model!C7", cites: ["R-7002-01"] };
+  await call("POST", "/api/report_items", { ...item, label: "reconstructed but untested" });
+  await call("POST", "/api/report_items", { ...item, label: "reconstructed and tested" });
+  const d = await (await call("GET", "/api/board/case/C-7002", undefined, null)).json();
+  assert.equal(d.report_items.length, 1);
+  assert.equal(d.report_items[0].label, "reconstructed and tested");
+});
