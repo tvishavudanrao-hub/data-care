@@ -164,7 +164,7 @@ export function makeDb(query) {
 
   // Public detail for the projector: masked email, no raw verdict results (they may hold held-back values).
   async function caseDetail(caseId) {
-    const [c, items, verdicts, events, counts] = await Promise.all([
+    const [c, items, verdicts, events, counts, rules] = await Promise.all([
       query(`select case_id, client_email, kind, stage, retry_count, quote_usd, updated_at from cases where case_id = $1`, [caseId]),
       query(`select item, label, cites from report_items where case_id = $1 order by item_id limit 200`, [caseId]).catch(() => []),
       query(`select pass, outcome, retry_count, created_at from verdicts where case_id = $1 order by created_at desc, verdict_id desc limit 5`, [caseId]),
@@ -172,12 +172,13 @@ export function makeDb(query) {
       query(`select (select count(*)::int from fragments where case_id = $1) as fragments,
                     (select count(*)::int from gaps where case_id = $1) as gaps,
                     (select count(*)::int from rules where case_id = $1) as rules`, [caseId]),
+      query(`select rule_id, description, evidence, status from rules where case_id = $1 order by rule_id limit 30`, [caseId]),
     ]);
     if (!c.length) return null;
     const cost = events.reduce((s, e) => s + Number(e.cost_usd || 0), 0);
     return decode({
       ...c[0], client_email: maskEmail(c[0].client_email), cost,
-      counts: counts[0], report_items: items, verdicts: verdicts.map(decode), events: events.map(decode),
+      counts: counts[0], rules, report_items: items, verdicts: verdicts.map(decode), events: events.map(decode),
     });
   }
 
