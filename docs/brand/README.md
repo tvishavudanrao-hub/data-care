@@ -1,6 +1,6 @@
 # Data Care brand
 
-Client-facing look for the website, /tickets and client emails. The live ops board keeps its own dark theme.
+Client-facing look for the website, /tickets, the live board and client emails.
 
 ## Logo
 - `datacare-mark.svg` / `.png`: the puzzle piece in the gradient, for white or light backgrounds.
