@@ -1,10 +1,10 @@
-// The live Code Care board, built for a projector. Polls /api/board every 5 seconds.
+// The live Data Care board, built for a projector. Polls /api/board every 5 seconds.
 export const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Code Care Live</title>
+<title>Data Care Live</title>
 <style>
 :root{--bg:#0b1419;--panel:#122029;--line:#22394a;--ink:#e8f0f4;--muted:#8fa7b5;--accent:#4cc3d9;
   --good:#5fd38d;--warn:#f0a04b;--bad:#ff7b6e;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -45,7 +45,7 @@ ol li.human{color:var(--warn)}
 </head>
 <body>
 <header>
-  <h1>Code Care <span>live</span></h1>
+  <h1>Data Care <span>live</span></h1>
   <div id="status">connecting…</div>
 </header>
 <section class="kpis">

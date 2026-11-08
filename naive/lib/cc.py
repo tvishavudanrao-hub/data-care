@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cc.py: write Code Care records (cases, fragments, rules, gaps, verdicts, report items, events, checkups).
+"""cc.py: write Data Care records (cases, fragments, rules, gaps, verdicts, report items, events, checkups).
 
 Standard library only, Python 3.8+, so every Naive agent can paste or fetch it into its sandbox.
 
@@ -14,7 +14,7 @@ Standard library only, Python 3.8+, so every Naive agent can paste or fetch it i
     python3 cc.py checkup    --case C-0002 --team "Team X" --repo-url https://... --high 1 --medium 2 --low 5
     python3 cc.py ping
 
-Environment: CC_URL (the Code Care app, e.g. https://codecare.example) and CC_API_TOKEN (sent as x-cc-token).
+Environment: CC_URL (the Data Care app, e.g. https://datacare.example) and CC_API_TOKEN (sent as x-cc-token).
 When CC_URL is not set, records are appended to JSON Lines files in CC_FALLBACK_DIR (default ./cc_records)
 so an agent can keep working before the app is live. Prints the stored row as JSON on success.
 """
@@ -99,7 +99,7 @@ def patch_case(case_id, body):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="cc.py", description="Write Code Care records.")
+    p = argparse.ArgumentParser(prog="cc.py", description="Write Data Care records.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("case-new", help="open a case")

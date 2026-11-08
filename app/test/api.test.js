@@ -95,7 +95,7 @@ test("bad input gets a clear 400", async () => {
 
 test("board page and health", async () => {
   const page = await call("GET", "/", undefined, null);
-  assert.match(await page.text(), /Code Care/);
+  assert.match(await page.text(), /Data Care/);
   const h = await (await call("GET", "/api/health")).json();
   assert.deepEqual(h, { ok: true, db: true, token_valid: true });
   assert.equal(maskEmail("anna@x.io"), "a***@x.io");

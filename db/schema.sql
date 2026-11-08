@@ -1,5 +1,5 @@
--- Code Care records store (Neon). Schema from the "Code Care: full build spec v2" board post, section 5.
--- Agents never connect to this database: they write through the Code Care app's records API (naive/lib/cc.py).
+-- Data Care records store (Neon). Schema from the "Code Care: full build spec v2" board post, section 5.
+-- Agents never connect to this database: they write through the Data Care app's records API (naive/lib/cc.py).
 
 create table cases (
   case_id text primary key,
