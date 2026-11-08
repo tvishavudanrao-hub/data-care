@@ -573,7 +573,7 @@ function caseApp() {
     const done = c.stage === "delivered";
     $("lab-h").textContent = done ? "Your report" : "Every item, labeled";
     $("lab-sum").textContent = total ? plural(total, "item", "items") + (done ? " in your report." : " labeled so far.")
-      : "No items labeled yet. They appear here as the work goes on.";
+      : done ? "Your labeled report is attached to our email." : "No items labeled yet. They appear here as the work goes on.";
     $("labels").innerHTML = LABELS.map((l) => '<div class="lab ' + l[2] + '"><p class="lab-top"><span class="lab-name">' + l[1] +
       '</span><span class="lab-n">' + (n[l[0]] || 0) + '</span></p><p class="lab-note">' + l[3] + "</p></div>").join("");
   }
