@@ -38,6 +38,8 @@ system: 'You work for an autonomous AI recovery company. We do not predict or in
   corrupted, inconsistent or undocumented, which input files could still hold the source data the damaged
   file was built from, and a confidence for each. Return a damage report as a job object to Recovery Manager
   with send_to_agent. Say plainly where you are not sure.'
+skills:
+  - forensics-scanner
 tools:
   default_config:
     permission: deny
@@ -69,9 +71,18 @@ tools:
       enabled: true
       permission: allow
     crm.read:
+      enabled: false
+      permission: deny
+    crm.write:
+      enabled: false
+      permission: deny
+    fetch_file:
       enabled: true
       permission: allow
-    crm.write:
+    find_files:
+      enabled: true
+      permission: allow
+    session_spend:
       enabled: true
       permission: allow
     web_fetch:
@@ -84,6 +95,12 @@ tools:
       enabled: true
       permission: allow
     web_search:
+      enabled: false
+      permission: deny
+    board_read:
+      enabled: true
+      permission: allow
+    board_write:
       enabled: true
       permission: allow
     list_agents:
@@ -103,7 +120,7 @@ tools:
       permission: allow
 budget:
   cap_usd: '15.00'
-  max_task_usd: '5.00'
+  max_task_usd: '1.00'
   period: day
 metadata:
   group: data-recovery
