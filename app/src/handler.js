@@ -3,6 +3,10 @@
 import { TABLES, InputError } from "./db.js";
 import { BOARD_HTML } from "./board.js";
 import { handleTickets, sqlTicketStore } from "./tickets/tickets.js";
+import { naiveSessionStarter } from "./tickets/naive.js";
+// Copies of web/connectors (the deploy only uploads app/). Keep in sync: npm run check-copies.
+import { handleConnectors, sqlConnectorStore } from "./connectors/connectors.js";
+import { naiveFiles } from "./connectors/naive_files.js";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
@@ -31,6 +35,14 @@ export async function handle(request, env, db) {
   const method = request.method;
 
   try {
+    // Client connects their storage read-only (web/connectors/README.md). Off until configured:
+    // without CONNECTOR_KEY, PUBLIC_BASE_URL and one provider's keys these pages say "not switched on yet".
+    if (path.startsWith("/connect") || path === "/api/connectors/revoke-expired") {
+      const c = await handleConnectors(request, env, { store: sqlConnectorStore(db.query), files: naiveFiles(env),
+        startSession: env.TICKETS_AUTOSTART === "1" && env.NAIVE_API_KEY && env.RECOVERY_MANAGER_AGENT_ID
+          ? naiveSessionStarter(env) : null });
+      if (c) return c;
+    }
     if (path === "/tickets" || path.startsWith("/api/tickets")) {
       const t = await handleTickets(request, env, sqlTicketStore(db.query));
       if (t) return t;
