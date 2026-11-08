@@ -60,6 +60,33 @@ class ForensicsScanTests(unittest.TestCase):
         self.assertIn("line 3", locs)
         self.assertIn("line 4", locs)
 
+    def test_ids_use_forensics_block_and_file_names(self):
+        r, o = self.run_scan({"m.xlsx": lambda p: make_xlsx(p, '<c r="A1"><v>5</v></c>')})
+        with open(os.path.join(o, "forensics_fragments.json")) as fh:
+            self.assertTrue(json.load(fh)[0]["fragment_id"].startswith("F-0001-9"))
+        with open(os.path.join(o, "forensics_gaps.json")) as fh:
+            self.assertEqual(json.load(fh)[0]["gap_id"], "G-0001-91")
+        self.assertFalse(os.path.exists(os.path.join(o, "fragments.json")))
+
+    def test_macro_project_flagged(self):
+        def mk(p):
+            make_xlsx(p, '<c r="A1"><f>1</f><v>1</v></c>')
+            with zipfile.ZipFile(p, "a") as z:
+                z.writestr("xl/vbaProject.bin", b"x")
+        r, _ = self.run_scan({"m.xlsx": mk})
+        self.assertTrue(any("macro" in x["detail"] for x in r["files"][0]["findings"]))
+
+    def test_symlink_not_followed(self):
+        d = tempfile.mkdtemp()
+        i = os.path.join(d, "in")
+        os.makedirs(i)
+        try:
+            os.symlink(os.path.join(d, "target"), os.path.join(i, "link.txt"))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not available")
+        r = fs.scan("C-0001", i, os.path.join(d, "out"))
+        self.assertEqual(r["files"][0]["status"], "skipped")
+
     def test_extension_mismatch(self):
         r, _ = self.run_scan({"fake.xlsx": b"just text"})
         self.assertTrue(any(x["class"] == "inconsistent" for x in r["files"][0]["findings"]))
