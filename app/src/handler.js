@@ -36,6 +36,10 @@ export async function handle(request, env, db) {
     if (method === "GET" && path === "/api/board") {
       return json(200, await db.board());
     }
+    if (method === "GET" && path.startsWith("/api/board/case/")) {
+      const row = await db.caseDetail(decodeURIComponent(path.slice("/api/board/case/".length)));
+      return row ? json(200, row) : json(404, { error: "case not found" });
+    }
     if (method === "GET" && path === "/api/health") {
       const token = request.headers.get("x-cc-token");
       return json(200, { ok: true, db: await db.health(), token_valid: sameToken(token, env.CC_API_TOKEN || "") && !!env.CC_API_TOKEN });
