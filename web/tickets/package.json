@@ -1,0 +1,10 @@
+{
+  "name": "datacare-tickets",
+  "private": true,
+  "type": "module",
+  "description": "Bare-bones ticket intake for Data Care (form + API), to be wired into app/ later.",
+  "scripts": {
+    "dev": "node server.js",
+    "test": "node --test tickets.test.js"
+  }
+}
