@@ -95,6 +95,12 @@ tools:
       enabled: true
       permission: allow
     web_search:
+      enabled: false
+      permission: deny
+    board_read:
+      enabled: true
+      permission: allow
+    board_write:
       enabled: true
       permission: allow
     list_agents:
