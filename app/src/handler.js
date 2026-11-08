@@ -2,6 +2,7 @@
 // Worker (worker.js) or under Node (server.js) with the same code.
 import { TABLES, InputError } from "./db.js";
 import { BOARD_HTML } from "./board.js";
+import { handleTickets, sqlTicketStore } from "./tickets/tickets.js";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
@@ -30,6 +31,10 @@ export async function handle(request, env, db) {
   const method = request.method;
 
   try {
+    if (path === "/tickets" || path.startsWith("/api/tickets")) {
+      const t = await handleTickets(request, env, sqlTicketStore(db.query));
+      if (t) return t;
+    }
     if (method === "GET" && path === "/") {
       return new Response(BOARD_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
