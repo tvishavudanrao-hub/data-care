@@ -1946,7 +1946,7 @@ def run(a):
     label, cites, gaps, filled, from_ev = {}, {}, [], {}, set()
 
     def gap(what, why, where):
-        gid = 'G-%s-%02d' % (cnum, len(gaps) + 1)
+        gid = 'G-%s-%02d' % (cnum, len(gaps) + 51)
         gaps.append({'gap_id': gid, 'what': what, 'why': why, 'where_to_look': where, 'status': 'open'})
         return gid
     ev_vals = ev_index(evd.get('values') or [], rows)
@@ -2272,7 +2272,7 @@ def run(a):
             if not isinstance(book.cells.get(k), float) or k in ev_rep:
                 items.append({'item': item_name([k], ROWS[k[:2]]), 'label': label[k], 'cites': cites[k]})
     for k in bad:
-        gaps.append({'gap_id': 'G-%s-%02d' % (cnum, len(gaps) + 1), 'what': 'rebuilt formula in %s does not reproduce its surviving value' % cref(k),
+        gaps.append({'gap_id': 'G-%s-%02d' % (cnum, len(gaps) + 51), 'what': 'rebuilt formula in %s does not reproduce its surviving value' % cref(k),
                      'why': 'internal check failed; the cell is labeled unresolved', 'where_to_look': ['rules.json entry for this row'], 'status': 'open'})
     used_s = sorted({n[1] for T in rows if T.choice and T.choice[0] != 'F' for n in leaves(T.choice) if n[0] == 'S'},
                     key=lambda k: (order[k[0]], k[1], k[2]))
@@ -2285,7 +2285,7 @@ def run(a):
         if n == 0:
             question = {'rule_id': T.rule, 'question': text, 'options': options, 'probe': probe}
         else:
-            gaps.append({'gap_id': 'G-%s-%02d' % (cnum, len(gaps) + 1), 'what': 'client choice for %s (%s)' % (T.label, T.rule),
+            gaps.append({'gap_id': 'G-%s-%02d' % (cnum, len(gaps) + 51), 'what': 'client choice for %s (%s)' % (T.label, T.rule),
                          'why': text, 'where_to_look': ['ask the client after %s is answered' % question['rule_id']] + options,
                          'status': 'open'})
     counts = {l: 0 for l in LABELS}
