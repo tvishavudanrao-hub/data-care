@@ -108,6 +108,6 @@ python -m verify.selftest
 
 ## Team
 
-Tvisha Vudanrao (@tvishavudanrao-hub): demo data, Validation · Balthazar Sauquet (@balthyZart): Context, Reconstruction · Andrei Jacques (@andrei-jacques): Data Care app, Neon · Anna Liu (@annathebest-creator): Recovery Manager · NWCodeStack (@NWCodeStack): Forensics, team lead
+Tvisha Vudanrao (@tvishavudanrao-hub): demo data, Validation · Balthazar Sauquet (@balthyZart): Context, Reconstruction · Andrei Jacques (@andrei-jacques): Data Care app, Neon · Anna Liu (@annathebest-creator): Recovery Manager · Nash Wu (@NWCodeStack): Forensics, team lead
 
 All companies, people and numbers in the demo data are synthetic.
